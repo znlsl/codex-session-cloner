@@ -109,8 +109,11 @@ def validate_jsonl_file(
 
 
 def normalize_relative_path(relative_path: str) -> str:
-    """Normalize Windows backslashes to forward slashes in manifest paths."""
-    return relative_path.replace("\\", "/")
+    """Normalize Windows backslashes to forward slashes and collapse duplicates."""
+    normalized = (relative_path or "").replace("\\", "/").strip()
+    while "//" in normalized:
+        normalized = normalized.replace("//", "/")
+    return normalized
 
 
 def validate_relative_path(relative_path: str, session_id: str) -> str:

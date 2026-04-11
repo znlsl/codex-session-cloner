@@ -22,7 +22,7 @@
 ### Session / Browse
 
 - 浏览最近会话
-- 过滤并查看会话详情
+- 搜索并查看会话详情
 - 导出单个会话为 Bundle
 
 ### Bundle / Transfer
@@ -232,12 +232,12 @@ make check
 
 浏览器相关按键：
 
-- `/`：过滤会话 / Bundle
+- `/`：搜索会话 / Bundle
 - `Enter`：在浏览模式下进入当前条目的操作面板，在选择模式下直接确认
 - `d`：只查看详情，不直接执行导入 / 导出
 - `e`：在会话列表中直接导出为 Bundle
 - `s`：切换 Bundle 导出方式
-- `m`：按导出机器切换 Bundle 过滤
+- `m`：按导出机器切换 Bundle 搜索范围
 - `l`：切换“显示全部历史 Bundle / 仅显示最新 Bundle”
 - `i / v`：导入当前 Bundle 为会话 / 导入并自动创建缺失目录
 
@@ -358,6 +358,8 @@ codex-session-toolkit import-desktop-all --machine Work-Laptop --latest-only
 codex-session-toolkit import-desktop-all --export-group active
 ```
 
+说明：命令名保留为 `import-desktop-all` 以兼容旧版本，但现在实际可结合 `--export-group` 导入 `desktop / active / cli / single` 四类 Bundle。
+
 修复 Desktop 可见性：
 
 ```bash
@@ -429,7 +431,23 @@ Bundle 内默认包含：
 - `CST_MACHINE_LABEL=My-MacBook`
 - `CST_LAUNCH_MODE=auto|source|installed`
 
+## 社区支持
 
-## 致谢
+<div align="center">
 
-感谢 [Linux Do](https://linux.do) 社区的讨论、分享和灵感。
+**学 AI，上 L 站**
+
+[![LINUX DO](https://img.shields.io/badge/LINUX%20DO-社区-gray?style=flat-square)](https://linux.do/) [![社区支持](https://img.shields.io/badge/社区支持-交流-blue?style=flat-square)](https://linux.do/)
+
+本项目在 [LINUX DO](https://linux.do/) 社区发布与交流，感谢佬友们的支持与反馈。
+
+</div>
+
+## 许可证
+
+MIT License
+
+本项目在 LINUX DO 社区发布与交流，感谢佬友们的支持与反馈。
+
+许可证
+MIT License
