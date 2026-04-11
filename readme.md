@@ -1,177 +1,435 @@
-# Codex Session Cloner
+# Codex Session Toolkit
 
-一个 **安全、幂等、可回滚** 的工具，用于将现有 Codex 会话（sessions）**克隆**为当前配置的 `model_provider`，而不破坏原始数据。
+上游仓库：[goodnightzsj/codex-session-cloner](https://github.com/goodnightzsj/codex-session-cloner.git)
 
-适用于在 **切换 provider / 代理 / 模型后**，继续使用历史会话进行 `codex resume`。
+`Codex Session Toolkit` 是一个面向 Codex 会话的浏览、迁移、导入导出和修复工具箱。
+它不是单一的 clone 脚本，而是一套统一的 TUI + CLI，用来处理会话管理里最常见的几类问题。
 
----
+![Codex Session Toolkit 界面预览](./assets/12345.png)
 
-## 功能特性
+## 适用场景
 
-- ✅ **自动识别当前 provider**
-  - 从 `~/.codex/config.toml` 读取 `model_provider`
-- ✅ **幂等运行**
-  - 已克隆的 session 不会重复克隆
-- ✅ **安全克隆**
-  - 原 session 永不修改，仅创建新文件
-- ✅ **Dry-run 支持**
-  - 预览所有操作，不写入、不删除
-- ✅ **历史清理**
-  - 可清理早期版本生成的「无标记 clone」
+如果你经常在 Codex Desktop 和 CLI 之间切换，或者有多台机器需要同步会话，这个项目主要帮你解决这些事：
 
----
+- 快速浏览本机最近会话，确认 session 类型、provider、cwd、rollout 路径
+- 把单个会话或整批 Desktop / CLI 会话导出成 Bundle，迁移到另一台电脑
+- 从别的设备导入 Bundle，并按设备文件夹、分类文件夹管理导出记录
+- 在切换 provider 后继续复用旧会话，又不覆盖原始 rollout
+- 修复 Codex Desktop 左侧线程不可见、`session_index.jsonl` 缺失、`threads` 表不同步等问题
 
-## 工作原理（简述）
+## 功能概览
 
-1. 扫描 `~/.codex/sessions`
-2. 建立已克隆 session 的索引（基于 `cloned_from` 字段）
-3. 对 **非当前 provider** 的 session：
-   - 生成新的 UUID
-   - 修改 metadata 中的 `model_provider`
-   - 记录来源信息
-   - 写入新文件（保留原有时间戳顺序）
-4. 可选：清理旧版本脚本生成、但未标记来源的 clone
+### Session / Browse
 
----
+- 浏览最近会话
+- 过滤并查看会话详情
+- 导出单个会话为 Bundle
 
-## Clone 后的 Metadata 变更
+### Bundle / Transfer
 
-新生成的 session **仅在 clone 时** 会额外包含以下字段：
+- 浏览 Bundle 仓库
+- 校验 Bundle 健康度
+- 批量导出全部 Desktop 会话为 Bundle
+- 批量导出全部 Active Desktop 会话为 Bundle
+- 批量导出全部 CLI 会话为 Bundle
+- 导入单个 Bundle 为会话
+- 先选设备文件夹、再选分类文件夹，批量导入整类 Bundle
+- 导入时保留本地更新更晚的 rollout，只补齐缺失 history，避免覆盖更新过的会话
 
-~~~json
-{
-  "model_provider": "<current provider>",
-  "cloned_from": "<original session id>",
-  "original_provider": "<original provider>",
-  "clone_timestamp": "2025-01-01T12:34:56.789"
-}
-~~~
+### Repair / Maintenance
 
-### 用途说明
+- 克隆到当前 provider
+- Dry-run 预演 clone / clean / repair
+- 清理旧版无标记 clone
+- 修复 Desktop 可见性
+- 修复并纳入 CLI 线程
+- 自动修复 / 重建 `session_index.jsonl`
+- 自动 upsert `state_*.sqlite` 的 `threads` 表
+- 自动补充 Desktop workspace roots
 
-- 防止重复克隆
-- 支持安全清理旧数据
-- 保留 session 数据血缘关系
+## 安装与启动
 
----
+### 最推荐：直接执行安装脚本
 
-## 使用方法
+仓库已经自带安装脚本。大多数情况下，不需要自己手敲 `pip install`，直接执行安装脚本即可。
 
-### 默认（TUI 模式 / 推荐）
+安装脚本会自动完成这些事：
 
-![TUI 菜单截图](./assets/tui.jpg)
+- 在项目根目录创建本地 `.venv/`
+- 把当前项目安装到这个本地环境里
+- 保留仓库 launcher，安装完成后可以直接启动工具
 
-在交互式终端中 **不带参数运行** 会进入 TUI 菜单，更友好地选择：
-
-- Clone（执行克隆）
-- Dry-run（模拟）
-- Clean（清理旧版无标记 clone）
-
-TUI 操作：
-
-- `↑/↓` 选择
-- `Enter` 执行
-- `1-5` 快捷选择
-- `h` 查看帮助
-- `q` 退出
-- `Clean`（删除）在 TUI 中需要输入 `DELETE` 二次确认
-
-#### Windows
-
-- 双击 `快速启动.bat`
-- 或在 PowerShell 中运行：`./csc-launcher.ps1`
-
-#### Linux / macOS
+macOS / Linux:
 
 ```bash
-chmod +x ./csc-launcher.sh
-./csc-launcher.sh
+chmod +x ./install.sh ./install.command ./codex-session-toolkit ./codex-session-toolkit.command
+./install.sh
+./codex-session-toolkit
 ```
 
-也可以直接用 Python 运行：
+macOS 也可以直接双击：
+
+- `install.command`
+- `codex-session-toolkit.command`
+
+Windows：
+
+- 双击 `install.bat`
+- 或运行：
+
+```powershell
+.\install.ps1
+.\codex-session-toolkit.cmd
+```
+
+安装完成后常用入口：
+
+- macOS / Linux：
 
 ```bash
-python3 codex-session-cloner.py
+./codex-session-toolkit
+./codex-session-toolkit.command
+./.venv/bin/codex-session-toolkit
 ```
 
-如果希望在交互终端里 **跳过 TUI** 直接执行克隆：
+- Windows：
+
+```powershell
+.\codex-session-toolkit.cmd
+.\.venv\Scripts\codex-session-toolkit.exe
+```
+
+查看当前版本：
 
 ```bash
-python3 codex-session-cloner.py --no-tui
+./codex-session-toolkit --version
 ```
 
-可选环境变量：
+### 开发模式：不安装也可直接运行
 
-- `NO_COLOR=1` 关闭颜色输出
-- `CSC_ASCII_UI=1` 强制 ASCII 边框（不支持 Unicode 时可用）
-- `CSC_TUI_MAX_WIDTH=120` 限制 TUI 最大宽度（超宽终端可用）
+如果你是在仓库里继续改代码，也可以不先安装，直接通过仓库 launcher 启动。
 
-> TUI 顶部的 Logo 会根据终端宽度自适配：优先显示一行 `CODEX SESSION CLONER` 字符画（宽终端更疏朗）；中等宽度会自动切换为更紧凑的字符画字体；过窄时会继续降级（最窄为 `CSC` 字符画 + 小字脚本名）。
+macOS / Linux:
 
-启动脚本同样支持 **参数透传**（带参数时会直接走 CLI，不进菜单）：
+```bash
+./codex-session-toolkit
+./codex-session-toolkit.command
+```
 
-- Windows：`./csc-launcher.ps1 --dry-run`
-- Linux/macOS：`./csc-launcher.sh --clean --dry-run`
+Windows:
 
-> 非交互环境（例如管道/CI）下无参数运行不会进入 TUI，会按原逻辑直接执行克隆。
+```powershell
+.\codex-session-toolkit.ps1
+```
 
----
+如果当前目录是 git 工作树，并且 `src/codex_session_toolkit/` 存在，仓库 launcher 会优先进入源码模式，这样改完代码后重新启动就能立刻生效。
 
-### 普通运行（执行克隆 / CLI）
+如果当前目录不是 git 工作树，例如 release 解压目录，launcher 会优先使用本地 `.venv` 里的已安装版本。
 
-~~~bash
-python3 codex-session-cloner.py
-~~~
+如果你想手动覆盖这个选择逻辑，可以设置：
 
----
+- `CST_LAUNCH_MODE=source`
+- `CST_LAUNCH_MODE=installed`
+- `CST_LAUNCH_MODE=auto`（默认）
 
-### Dry Run（强烈推荐首次使用 / CLI）
+### 生成可分发压缩包
 
-~~~bash
-python3 codex-session-cloner.py --dry-run
-~~~
+如果你想把当前仓库直接打成一个可发给别人的安装包，可以运行：
 
-仅显示将要执行的操作，不会创建或删除任何文件。
+```bash
+./release.sh
+```
 
----
+或者：
 
-### 清理旧版未标记的 Clone（CLI）
+```bash
+make release
+```
 
-用于清理 **早期版本脚本生成，但没有 `cloned_from` 字段** 的 session。
+它会在 `./dist/releases/` 下生成：
 
-~~~bash
-python3 codex-session-cloner.py --clean
-~~~
+- 一个干净的发布目录
+- 一个 `.tar.gz`
+- 如果系统有 `zip`，再额外生成一个 `.zip`
 
-同样支持 dry-run：
+上传到 GitHub Release 时，直接上传这两个文件即可：
 
-~~~bash
-python3 codex-session-cloner.py --clean --dry-run
-~~~
+- `./dist/releases/codex-session-toolkit-<version>.tar.gz`
+- `./dist/releases/codex-session-toolkit-<version>.zip`
 
----
+对方解压后，直接运行：
+
+- macOS / Linux：`./install.sh`
+- Windows：`.\install.ps1` 或双击 `install.bat`
+
+release 只会携带分发所需文件；CI、测试、兼容层、release 构建器本身和本地缓存都不会进入发布包。
+
+### 直接安装到当前 Python 环境
+
+如果你就是想装进自己当前的 Python 环境，也仍然支持标准安装方式：
+
+macOS / Linux:
+
+```bash
+python3 -m pip install -e .
+codex-session-toolkit
+```
+
+Windows:
+
+```powershell
+py -3 -m pip install -e .
+codex-session-toolkit
+```
+
+也支持模块方式：
+
+```bash
+python3 -m codex_session_toolkit
+```
+
+### 用工程命令管理本地开发
+
+如果你想把这个仓库当成一个长期维护的项目来用，而不是临时脚本，可以直接用顶层 [Makefile](./Makefile)：
+
+```bash
+make help
+make bootstrap
+make bootstrap-editable
+make release
+make run
+make install
+make test
+make smoke
+make check
+```
+
+## TUI 使用方式
+
+在交互终端里无参数启动，会进入统一 TUI。
+
+主菜单分为 3 个功能域：
+
+1. `Session / Browse`
+2. `Bundle / Transfer`
+3. `Repair / Maintenance`
+
+当前交互方式是两级结构：
+
+- 首页先选择功能域
+- 回车进入该功能页
+- 在功能页中选择具体动作再执行
+
+常用按键：
+
+- `↑/↓` 或 `j/k`：移动
+- `Enter`：进入功能页或执行动作
+- `←/→`：切换上一页 / 下一页功能页
+- `PgUp/PgDn`：功能页切换
+- `h`：帮助
+- `q`：返回或退出
+- `0`：直接退出
+
+浏览器相关按键：
+
+- `/`：过滤会话 / Bundle
+- `Enter`：在浏览模式下进入当前条目的操作面板，在选择模式下直接确认
+- `d`：只查看详情，不直接执行导入 / 导出
+- `e`：在会话列表中直接导出为 Bundle
+- `s`：切换 Bundle 导出方式
+- `m`：按导出机器切换 Bundle 过滤
+- `l`：切换“显示全部历史 Bundle / 仅显示最新 Bundle”
+- `i / v`：导入当前 Bundle 为会话 / 导入并自动创建缺失目录
+
+## CLI 用法
+
+### 兼容入口参数
+
+直接 clone：
+
+```bash
+codex-session-toolkit
+```
+
+Dry-run：
+
+```bash
+codex-session-toolkit --dry-run
+```
+
+清理旧版无标记 clone：
+
+```bash
+codex-session-toolkit --clean
+```
+
+跳过 TUI，直接执行 clone：
+
+```bash
+codex-session-toolkit --no-tui
+```
+
+查看版本：
+
+```bash
+codex-session-toolkit --version
+```
+
+### Canonical 子命令
+
+Repair / Maintenance:
+
+```bash
+codex-session-toolkit clone-provider
+codex-session-toolkit clone-provider --dry-run
+codex-session-toolkit clean-clones
+codex-session-toolkit clean-clones --dry-run
+```
+
+浏览本机会话：
+
+```bash
+codex-session-toolkit list
+codex-session-toolkit list desktop
+codex-session-toolkit list 019d58
+```
+
+浏览 Bundle 导出记录：
+
+```bash
+codex-session-toolkit list-bundles
+codex-session-toolkit list-bundles --source desktop
+codex-session-toolkit list-bundles 019d58
+```
+
+校验 Bundle 导出目录：
+
+```bash
+codex-session-toolkit validate-bundles
+codex-session-toolkit validate-bundles --source desktop
+codex-session-toolkit validate-bundles --source desktop --verbose
+```
+
+导出单个会话为 Bundle：
+
+```bash
+codex-session-toolkit export <session_id>
+```
+
+批量导出 Desktop 会话为 Bundle：
+
+```bash
+codex-session-toolkit export-desktop-all
+codex-session-toolkit export-desktop-all --dry-run
+codex-session-toolkit export-active-desktop-all
+codex-session-toolkit export-active-desktop-all --dry-run
+```
+
+兼容旧写法：
+
+```bash
+codex-session-toolkit export-desktop-all --active-only
+```
+
+批量导出 CLI 会话为 Bundle：
+
+```bash
+codex-session-toolkit export-cli-all
+codex-session-toolkit export-cli-all --dry-run
+```
+
+导入单个 Bundle 为会话：
+
+```bash
+codex-session-toolkit import <session_id>
+codex-session-toolkit import <session_id> --source desktop --machine Work-Laptop
+codex-session-toolkit import <session_id> --source desktop --export-group active
+codex-session-toolkit import ./codex_sessions/<machine>/single/<timestamp>/<session_id>
+codex-session-toolkit import --desktop-visible <session_id>
+```
+
+批量导入 Bundle 为会话：
+
+```bash
+codex-session-toolkit import-desktop-all
+codex-session-toolkit import-desktop-all --desktop-visible
+codex-session-toolkit import-desktop-all --machine Work-Laptop
+codex-session-toolkit import-desktop-all --machine Work-Laptop --latest-only
+codex-session-toolkit import-desktop-all --export-group active
+```
+
+修复 Desktop 可见性：
+
+```bash
+codex-session-toolkit repair-desktop
+codex-session-toolkit repair-desktop --dry-run
+codex-session-toolkit repair-desktop --include-cli
+codex-session-toolkit repair-desktop --include-cli --dry-run
+```
+
+## Bundle 目录策略
+
+所有 Bundle 相关动作都只允许在当前目录下的 `./codex_sessions/` 中进行。
+
+这包括：
+
+- 导出
+- 浏览
+- 校验
+- 导入
+
+不再提供用户可自定义的 `--bundle-root`。
+
+如果你手动传入一个 Bundle 目录，这个目录也必须位于 `./codex_sessions/` 下面，否则工具会拒绝执行。
+
+默认目录：
+
+- Codex 数据目录：`~/.codex/`
+- Bundle 根目录：`./codex_sessions/`
+
+默认归档结构：
+
+- `./codex_sessions/<machine>/single/<timestamp>/<session_id>/`
+- `./codex_sessions/<machine>/desktop/<timestamp>/<session_id>/`
+- `./codex_sessions/<machine>/active/<timestamp>/<session_id>/`
+- `./codex_sessions/<machine>/cli/<timestamp>/<session_id>/`
+
+其中 `<machine>` 默认来自当前电脑主机名；如需手动指定，可以在导出前设置环境变量 `CST_MACHINE_LABEL`。
+
+兼容旧布局：
+
+- 工具仍会继续识别 `./codex_sessions/bundles/` 与 `./codex_sessions/desktop_bundles/` 下的旧导出
+- 但新的导出默认都会写入统一的 `./codex_sessions/<machine>/<category>/...` 结构
+
+Bundle 内默认包含：
+
+- `codex/<relative rollout path>.jsonl`
+- `history.jsonl`
+- `manifest.env`
 
 ## 安全性说明
 
-- ❗ 永远不会修改或覆盖原始 session
-- ❗ 删除操作仅针对：
-  - 当前 provider
-  - 且无 `cloned_from` 标记
-  - 且能通过时间戳明确关联原始 session
-- ❗ 强烈建议首次运行使用 `--dry-run`
+- 不修改对话正文内容
+- 不会悄悄覆盖原始 session
+- 清理操作只针对旧版无标记 clone
+- 导入前会校验 manifest、路径和 JSONL
+- 建议所有写入型动作第一次都先用 dry-run
 
----
+## 运行环境
 
-## 依赖
+- Python >= 3.8
+- 无第三方运行时依赖
+- 支持 Windows / macOS / Linux
 
-- Python ≥ 3.8
-- 无第三方依赖（仅使用标准库）
+## 终端环境变量
 
----
+- `NO_COLOR=1`
+- `CST_ASCII_UI=1`
+- `CST_TUI_MAX_WIDTH=120`
+- `CST_MACHINE_LABEL=My-MacBook`
+- `CST_LAUNCH_MODE=auto|source|installed`
 
-## 非目标（刻意不做的事）
 
-- 不修改对话内容
-- 不尝试跨 provider 语义兼容
-- 不自动删除原始 session
-- 不解析或重写非 Codex 生成的文件
+## 致谢
+
+感谢 [Linux Do](https://linux.do) 社区的讨论、分享和灵感。
