@@ -10,6 +10,7 @@ from typing import Optional
 @dataclass(frozen=True)
 class CodexPaths:
     home: Path = Path.home()
+    cwd: Path = Path.cwd()
 
     @property
     def code_dir(self) -> Path:
@@ -41,7 +42,7 @@ class CodexPaths:
 
     @property
     def local_bundle_workspace(self) -> Path:
-        return Path.cwd() / "codex_sessions"
+        return self.cwd / "codex_sessions"
 
     @property
     def default_bundle_root(self) -> Path:

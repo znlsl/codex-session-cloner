@@ -229,20 +229,26 @@ def resolve_bundle_dir(bundle_root: Path, session_id: str) -> Path:
 
     direct_candidate = bundle_root / session_id
     candidates: List[Path] = []
+    seen: set[Path] = set()
     if (direct_candidate / "manifest.env").is_file():
         candidates.append(direct_candidate)
+        seen.add(direct_candidate)
 
     for bundle_dir in iter_bundle_directories_under_root(bundle_root):
-        if bundle_dir in candidates:
+        if bundle_dir in seen:
+            continue
+        if bundle_dir.name == session_id:
+            candidates.append(bundle_dir)
+            seen.add(bundle_dir)
             continue
         manifest_file = bundle_dir / "manifest.env"
-        candidate_session_id = ""
         try:
             candidate_session_id = load_manifest(manifest_file).get("SESSION_ID", "")
         except Exception:
-            pass
-        if bundle_dir.name == session_id or candidate_session_id == session_id:
+            continue
+        if candidate_session_id == session_id:
             candidates.append(bundle_dir)
+            seen.add(bundle_dir)
 
     if not candidates:
         raise ToolkitError(f"Bundle not found for session id: {session_id}")

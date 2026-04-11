@@ -122,3 +122,70 @@ def upsert_session_index(index_file: Path, session_id: str, thread_name: str, up
             f"Warning: discarded {discarded_invalid_lines} unrecoverable malformed session_index.jsonl line(s).",
             file=sys.stderr,
         )
+
+
+def batch_upsert_session_index(index_file: Path, updates: list[tuple[str, str, str]]) -> None:
+    """Upsert multiple (session_id, thread_name, updated_at) entries in a single rewrite."""
+    if not updates:
+        return
+    entries = OrderedDict()
+    discarded_invalid_lines = 0
+    update_ids = {sid for sid, _, _ in updates}
+
+    if index_file.exists():
+        with index_file.open("r", encoding="utf-8") as fh:
+            for raw in fh:
+                raw = raw.rstrip("\n")
+                if not raw:
+                    continue
+                try:
+                    obj = json.loads(raw)
+                except Exception:
+                    obj = salvage_index_line(raw)
+                    if obj is None:
+                        discarded_invalid_lines += 1
+                        continue
+
+                if not isinstance(obj, dict):
+                    continue
+
+                existing_id = obj.get("id")
+                if not existing_id or existing_id in update_ids:
+                    continue
+
+                normalized = {
+                    "id": existing_id,
+                    "thread_name": obj.get("thread_name") or existing_id,
+                    "updated_at": normalize_iso(str(obj.get("updated_at", ""))),
+                }
+
+                if existing_id in entries:
+                    del entries[existing_id]
+                entries[existing_id] = normalized
+
+    for session_id, thread_name, updated_at in updates:
+        entries[session_id] = {
+            "id": session_id,
+            "thread_name": thread_name or session_id,
+            "updated_at": updated_at,
+        }
+
+    index_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(index_file.parent), suffix=".tmp")
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
+            for obj in entries.values():
+                fh.write(json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n")
+        os.replace(tmp_path, str(index_file))
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    if discarded_invalid_lines:
+        print(
+            f"Warning: discarded {discarded_invalid_lines} unrecoverable malformed session_index.jsonl line(s).",
+            file=sys.stderr,
+        )

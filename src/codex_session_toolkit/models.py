@@ -129,6 +129,7 @@ class ImportResult:
     created_workspace_dir: bool = False
     backup_path: Optional[Path] = None
     warnings: List[str] = field(default_factory=list)
+    _index_entry: Optional[tuple] = None
 
 
 @dataclass(frozen=True)

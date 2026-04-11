@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
@@ -83,23 +84,34 @@ def read_session_payload(path: Path) -> dict:
 
 
 def extract_session_field_from_file(field_name: str, session_file: Path) -> str:
-    with session_file.open("r", encoding="utf-8") as fh:
-        for raw in fh:
-            stripped = raw.strip()
-            if not stripped:
-                continue
-            try:
-                obj = json.loads(stripped)
-            except Exception:
-                continue
-            if obj.get("type") != "session_meta":
-                continue
-            payload = obj.get("payload")
-            if not isinstance(payload, dict):
+    fields = extract_session_meta_fields(session_file, field_name)
+    return fields.get(field_name, "")
+
+
+def extract_session_meta_fields(session_file: Path, *field_names: str) -> dict:
+    result = {name: "" for name in field_names}
+    try:
+        with session_file.open("r", encoding="utf-8") as fh:
+            for raw in fh:
+                stripped = raw.strip()
+                if not stripped:
+                    continue
+                try:
+                    obj = json.loads(stripped)
+                except Exception:
+                    continue
+                if obj.get("type") != "session_meta":
+                    continue
+                payload = obj.get("payload")
+                if not isinstance(payload, dict):
+                    break
+                for name in field_names:
+                    value = payload.get(name)
+                    result[name] = value if isinstance(value, str) else ""
                 break
-            value = payload.get(field_name)
-            return value if isinstance(value, str) else ""
-    return ""
+    except FileNotFoundError:
+        print(f"Warning: session file not found: {session_file}", file=sys.stderr)
+    return result
 
 
 def extract_last_timestamp(session_file: Path) -> str:
@@ -142,14 +154,15 @@ def collect_session_summaries(
         session_id = session_id_from_filename(session_file) or session_file.stem
         session_scope = "archived" if str(session_file).startswith(str(paths.archived_sessions_dir)) else "active"
         preview = history_preview.get(session_id, "")
-        source_name = extract_session_field_from_file("source", session_file)
-        originator_name = extract_session_field_from_file("originator", session_file)
+        fields = extract_session_meta_fields(session_file, "source", "originator", "cwd", "model_provider")
+        source_name = fields["source"]
+        originator_name = fields["originator"]
         session_kind = classify_session_kind(source_name, originator_name)
         if desktop_only and session_kind != "desktop":
             continue
 
-        cwd = extract_session_field_from_file("cwd", session_file)
-        model_provider = extract_session_field_from_file("model_provider", session_file)
+        cwd = fields["cwd"]
+        model_provider = fields["model_provider"]
         summary = SessionSummary(
             session_id=session_id,
             scope=session_scope,

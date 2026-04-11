@@ -22,7 +22,7 @@ from ..stores.bundles import (
     resolve_known_bundle_dir,
 )
 from ..stores.desktop_state import ensure_desktop_workspace_root, prepare_session_for_import, upsert_threads_table
-from ..stores.index import load_existing_index, upsert_session_index
+from ..stores.index import batch_upsert_session_index, load_existing_index, upsert_session_index
 from ..stores.session_files import extract_last_timestamp, extract_session_field_from_file
 from ..support import (
     classify_session_kind,
@@ -49,6 +49,7 @@ def import_session(
     machine_filter: str = "",
     export_group_filter: str = "",
     desktop_visible: bool = False,
+    _defer_index_write: bool = False,
 ) -> ImportResult:
     input_path = Path(input_value).expanduser()
     resolved_from_session_id = False
@@ -104,13 +105,12 @@ def import_session(
     auto_desktop_compat = session_kind == "cli" and desktop_env
 
     prepared_fd, prepared_path = tempfile.mkstemp(prefix="codex-import-session.")
+    os.close(prepared_fd)
     warnings: list[str] = []
     created_workspace_dir = False
     backup_path = None
     rollout_action = "created"
     try:
-        os.close(prepared_fd)
-        Path(prepared_path).unlink(missing_ok=True)
         prepared_source_session = Path(prepared_path)
         prepare_session_for_import(
             source_session,
@@ -191,12 +191,13 @@ def import_session(
             if rollout_action == "preserved_newer_local"
             else thread_name or existing_index.get(session_id, {}).get("thread_name")
         )
-        upsert_session_index(
-            paths.index_file,
-            session_id,
-            effective_thread_name or f"Imported {session_id}",
-            effective_updated_at,
-        )
+        if not _defer_index_write:
+            upsert_session_index(
+                paths.index_file,
+                session_id,
+                effective_thread_name or f"Imported {session_id}",
+                effective_updated_at,
+            )
 
         desktop_registered = False
         desktop_registration_target = ""
@@ -230,6 +231,14 @@ def import_session(
             )
         )
 
+        index_entry = None
+        if _defer_index_write:
+            index_entry = (
+                session_id,
+                effective_thread_name or f"Imported {session_id}",
+                effective_updated_at,
+            )
+
         return ImportResult(
             session_id=session_id,
             bundle_dir=bundle_dir,
@@ -246,6 +255,7 @@ def import_session(
             created_workspace_dir=created_workspace_dir,
             backup_path=backup_path,
             warnings=warnings,
+            _index_entry=index_entry,
         )
     finally:
         Path(prepared_path).unlink(missing_ok=True)
@@ -277,12 +287,21 @@ def import_desktop_all(
     bundle_dirs = [summary.bundle_dir for summary in bundle_summaries]
     success_dirs: list[Path] = []
     failed_imports: list[tuple[Path, str]] = []
+    deferred_index_entries: list[tuple[str, str, str]] = []
     for bundle_dir in bundle_dirs:
         try:
-            import_session(paths, str(bundle_dir), bundle_root=bundle_root, desktop_visible=desktop_visible)
+            result = import_session(
+                paths, str(bundle_dir), bundle_root=bundle_root,
+                desktop_visible=desktop_visible, _defer_index_write=True,
+            )
             success_dirs.append(bundle_dir)
+            if result._index_entry:
+                deferred_index_entries.append(result._index_entry)
         except Exception as exc:
             failed_imports.append((bundle_dir, str(exc)))
+
+    if deferred_index_entries:
+        batch_upsert_session_index(paths.index_file, deferred_index_entries)
 
     machine_label = ""
     if machine_filter:

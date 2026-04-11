@@ -205,7 +205,7 @@ class CoreWorkflowTests(unittest.TestCase):
             workspace = Path(tmpdir) / "workspace"
             home = Path(tmpdir) / "home"
             workspace.mkdir()
-            paths = CodexPaths(home=home)
+            paths = CodexPaths(home=home, cwd=workspace)
 
             new_single = (
                 workspace
@@ -382,7 +382,7 @@ class CoreWorkflowTests(unittest.TestCase):
                 cwd=original_cwd,
             )
             write_history(home, original_id, "hello clone")
-            paths = CodexPaths(home=home)
+            paths = CodexPaths(home=home, cwd=workspace)
 
             with pushd(workspace):
                 result = clone_to_provider(paths)
@@ -419,8 +419,8 @@ class CoreWorkflowTests(unittest.TestCase):
             )
             write_history(src_home, session_id, "roundtrip bundle")
 
-            src_paths = CodexPaths(home=src_home)
-            dst_paths = CodexPaths(home=dst_home)
+            src_paths = CodexPaths(home=src_home, cwd=workspace)
+            dst_paths = CodexPaths(home=dst_home, cwd=workspace)
 
             with pushd(workspace), env_override("CST_MACHINE_LABEL", "MacBook-Pro-A"):
                 export_result = export_session(src_paths, session_id)
@@ -555,8 +555,8 @@ class CoreWorkflowTests(unittest.TestCase):
             )
             write_history(dst_home, session_id, "newer local history")
 
-            src_paths = CodexPaths(home=src_home)
-            dst_paths = CodexPaths(home=dst_home)
+            src_paths = CodexPaths(home=src_home, cwd=workspace)
+            dst_paths = CodexPaths(home=dst_home, cwd=workspace)
 
             with pushd(workspace), env_override("CST_MACHINE_LABEL", "Work-Laptop"):
                 export_result = export_session(src_paths, session_id)
@@ -603,8 +603,8 @@ class CoreWorkflowTests(unittest.TestCase):
             )
             write_history(src_home, session_id, "desktop bundle by session id")
 
-            src_paths = CodexPaths(home=src_home)
-            dst_paths = CodexPaths(home=dst_home)
+            src_paths = CodexPaths(home=src_home, cwd=workspace)
+            dst_paths = CodexPaths(home=dst_home, cwd=workspace)
 
             with pushd(workspace), env_override("CST_MACHINE_LABEL", "Studio-Mac"):
                 export_active_desktop_all(src_paths)
@@ -661,9 +661,9 @@ class CoreWorkflowTests(unittest.TestCase):
             )
             write_history(other_home, other_session_id, "other machine export")
 
-            src_paths = CodexPaths(home=src_home)
-            other_paths = CodexPaths(home=other_home)
-            dst_paths = CodexPaths(home=dst_home)
+            src_paths = CodexPaths(home=src_home, cwd=workspace)
+            other_paths = CodexPaths(home=other_home, cwd=workspace)
+            dst_paths = CodexPaths(home=dst_home, cwd=workspace)
 
             with pushd(workspace), env_override("CST_MACHINE_LABEL", "Work-Laptop"):
                 export_active_desktop_all(src_paths)

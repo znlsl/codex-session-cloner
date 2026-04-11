@@ -114,17 +114,26 @@ def repair_desktop(
             changed_sessions.append(str(session_file))
             if not dry_run:
                 backup_file(paths.code_dir, backup_root, backed_up, session_file, enabled=True)
-                with session_file.open("w", encoding="utf-8") as fh:
-                    for raw, obj in records:
-                        if not obj:
-                            fh.write(raw)
-                            continue
-                        if obj.get("type") == "session_meta" and isinstance(obj.get("payload"), dict):
-                            patched = dict(obj)
-                            patched["payload"] = updated_meta
-                            fh.write(json.dumps(patched, ensure_ascii=False, separators=(",", ":")) + "\n")
-                        else:
-                            fh.write(raw)
+                tmp_fd, tmp_path = tempfile.mkstemp(dir=str(session_file.parent), suffix=".tmp")
+                try:
+                    with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
+                        for raw, obj in records:
+                            if not obj:
+                                fh.write(raw)
+                                continue
+                            if obj.get("type") == "session_meta" and isinstance(obj.get("payload"), dict):
+                                patched = dict(obj)
+                                patched["payload"] = updated_meta
+                                fh.write(json.dumps(patched, ensure_ascii=False, separators=(",", ":")) + "\n")
+                            else:
+                                fh.write(raw)
+                    os.replace(tmp_path, str(session_file))
+                except BaseException:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+                    raise
 
         session_meta = updated_meta
         thread_name = existing_index.get(session_id, {}).get("thread_name") or history_first_messages.get(session_id) or session_id
@@ -207,9 +216,13 @@ def repair_desktop(
             if root not in project_order:
                 project_order.append(root)
 
-    state_data["electron-saved-workspace-roots"] = saved_roots
-    state_data["active-workspace-roots"] = list(saved_roots)
-    state_data["project-order"] = project_order
+    if not dry_run:
+        state_data["electron-saved-workspace-roots"] = saved_roots
+        state_data["active-workspace-roots"] = list(saved_roots)
+        state_data["project-order"] = project_order
+    else:
+        state_data = dict(state_data)
+        state_data["active-workspace-roots"] = list(saved_roots)
 
     if not dry_run:
         backup_file(paths.code_dir, backup_root, backed_up, paths.state_file, enabled=True)
