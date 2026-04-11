@@ -208,14 +208,17 @@ def iter_bundle_directories_under_root(bundle_root: Path) -> List[Path]:
     return bundle_dirs
 
 
-def bundle_directory_sort_key(bundle_dir: Path) -> Tuple[int, int, str]:
-    manifest_file = bundle_dir / "manifest.env"
+def bundle_directory_sort_key(bundle_dir: Path, *, manifest: Optional[dict] = None) -> Tuple[int, int, str]:
     exported_epoch = 0
-    try:
-        manifest = load_manifest(manifest_file)
+    if manifest is not None:
         exported_epoch = iso_to_epoch(manifest.get("EXPORTED_AT", "") or manifest.get("UPDATED_AT", ""))
-    except Exception:
-        pass
+    else:
+        manifest_file = bundle_dir / "manifest.env"
+        try:
+            m = load_manifest(manifest_file)
+            exported_epoch = iso_to_epoch(m.get("EXPORTED_AT", "") or m.get("UPDATED_AT", ""))
+        except Exception:
+            pass
     try:
         modified_ns = bundle_dir.stat().st_mtime_ns
     except OSError:
@@ -229,10 +232,15 @@ def resolve_bundle_dir(bundle_root: Path, session_id: str) -> Path:
 
     direct_candidate = bundle_root / session_id
     candidates: List[Path] = []
+    manifest_cache: dict[Path, dict] = {}
     seen: set[Path] = set()
     if (direct_candidate / "manifest.env").is_file():
         candidates.append(direct_candidate)
         seen.add(direct_candidate)
+        try:
+            manifest_cache[direct_candidate] = load_manifest(direct_candidate / "manifest.env")
+        except Exception:
+            pass
 
     for bundle_dir in iter_bundle_directories_under_root(bundle_root):
         if bundle_dir in seen:
@@ -243,17 +251,18 @@ def resolve_bundle_dir(bundle_root: Path, session_id: str) -> Path:
             continue
         manifest_file = bundle_dir / "manifest.env"
         try:
-            candidate_session_id = load_manifest(manifest_file).get("SESSION_ID", "")
+            manifest = load_manifest(manifest_file)
         except Exception:
             continue
-        if candidate_session_id == session_id:
+        if manifest.get("SESSION_ID", "") == session_id:
             candidates.append(bundle_dir)
             seen.add(bundle_dir)
+            manifest_cache[bundle_dir] = manifest
 
     if not candidates:
         raise ToolkitError(f"Bundle not found for session id: {session_id}")
 
-    candidates.sort(key=bundle_directory_sort_key, reverse=True)
+    candidates.sort(key=lambda d: bundle_directory_sort_key(d, manifest=manifest_cache.get(d)), reverse=True)
     return candidates[0]
 
 

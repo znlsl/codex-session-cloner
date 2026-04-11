@@ -23,6 +23,12 @@ _ROLLOUT_FILENAME_RE = re.compile(
 
 
 def iter_session_files(paths: CodexPaths, *, active_only: bool = False) -> Iterable[Path]:
+    """Yield rollout files sorted by path within each segment (active, then archived).
+
+    Active and archived sessions are sorted independently; the two segments are
+    not merge-sorted across boundaries.  Callers that need a globally-sorted
+    stream should apply their own sort on the returned iterable.
+    """
     if paths.sessions_dir.exists():
         yield from sorted(paths.sessions_dir.rglob("rollout-*.jsonl"))
     if not active_only and paths.archived_sessions_dir.exists():
@@ -116,18 +122,21 @@ def extract_session_meta_fields(session_file: Path, *field_names: str) -> dict:
 
 def extract_last_timestamp(session_file: Path) -> str:
     last_timestamp = ""
-    with session_file.open("r", encoding="utf-8") as fh:
-        for raw in fh:
-            stripped = raw.strip()
-            if not stripped:
-                continue
-            try:
-                obj = json.loads(stripped)
-            except Exception:
-                continue
-            timestamp = obj.get("timestamp")
-            if isinstance(timestamp, str) and timestamp:
-                last_timestamp = timestamp
+    try:
+        with session_file.open("r", encoding="utf-8") as fh:
+            for raw in fh:
+                stripped = raw.strip()
+                if not stripped:
+                    continue
+                try:
+                    obj = json.loads(stripped)
+                except Exception:
+                    continue
+                timestamp = obj.get("timestamp")
+                if isinstance(timestamp, str) and timestamp:
+                    last_timestamp = timestamp
+    except FileNotFoundError:
+        pass
     return last_timestamp
 
 

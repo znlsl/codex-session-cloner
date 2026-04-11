@@ -40,6 +40,22 @@ from ..validation import (
 )
 
 
+def _atomic_copy(src: Path, dst: Path) -> None:
+    """Copy src to dst atomically via tempfile + os.replace."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(dst.parent), suffix=".tmp")
+    try:
+        os.close(tmp_fd)
+        shutil.copy2(src, tmp_path)
+        os.replace(tmp_path, str(dst))
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def import_session(
     paths: CodexPaths,
     input_value: str,
@@ -79,7 +95,7 @@ def import_session(
     relative_path = manifest["RELATIVE_PATH"]
     validate_relative_path(relative_path, session_id)
 
-    if not Path(input_value).expanduser().is_dir() and input_value != session_id:
+    if not input_path.is_dir() and input_value != session_id:
         raise ToolkitError(f"Manifest session id does not match requested session id: {session_id}")
 
     source_session = bundle_dir / "codex" / relative_path
@@ -150,10 +166,10 @@ def import_session(
             else:
                 backup_path = target_session.with_name(target_session.name + f".bak.{int(time.time())}")
                 shutil.copy2(target_session, backup_path)
-                shutil.copy2(prepared_source_session, target_session)
+                _atomic_copy(prepared_source_session, target_session)
                 rollout_action = "overwritten"
         else:
-            shutil.copy2(prepared_source_session, target_session)
+            _atomic_copy(prepared_source_session, target_session)
             rollout_action = "created"
 
         effective_session_file = target_session
@@ -176,15 +192,33 @@ def import_session(
 
         paths.history_file.parent.mkdir(parents=True, exist_ok=True)
         paths.history_file.touch(exist_ok=True)
-        existing_history_lines = set(paths.history_file.read_text(encoding="utf-8").splitlines())
+        existing_history_text = paths.history_file.read_text(encoding="utf-8")
+        existing_history_lines = set(existing_history_text.splitlines())
+        new_lines: list[str] = []
         if bundle_history.exists():
-            with bundle_history.open("r", encoding="utf-8") as fh_in, paths.history_file.open("a", encoding="utf-8") as fh_out:
+            with bundle_history.open("r", encoding="utf-8") as fh_in:
                 for raw in fh_in:
                     stripped = raw.rstrip("\n")
                     if not stripped or stripped in existing_history_lines:
                         continue
-                    fh_out.write(raw if raw.endswith("\n") else raw + "\n")
+                    new_lines.append(raw if raw.endswith("\n") else raw + "\n")
                     existing_history_lines.add(stripped)
+        if new_lines:
+            merged = existing_history_text
+            if merged and not merged.endswith("\n"):
+                merged += "\n"
+            merged += "".join(new_lines)
+            tmp_fd, tmp_path = tempfile.mkstemp(dir=str(paths.history_file.parent), suffix=".tmp")
+            try:
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
+                    fh.write(merged)
+                os.replace(tmp_path, str(paths.history_file))
+            except BaseException:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
 
         effective_thread_name = (
             existing_index.get(session_id, {}).get("thread_name")

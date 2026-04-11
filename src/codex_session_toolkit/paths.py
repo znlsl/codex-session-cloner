@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -60,6 +61,7 @@ class CodexPaths:
     def legacy_desktop_bundle_root(self) -> Path:
         return self.local_bundle_workspace / "desktop_bundles"
 
+    @functools.lru_cache(maxsize=1)
     def latest_state_db(self) -> Optional[Path]:
         matches = sorted(self.code_dir.glob("state_*.sqlite"))
         return matches[-1] if matches else None

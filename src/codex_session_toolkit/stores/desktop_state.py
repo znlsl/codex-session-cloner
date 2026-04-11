@@ -35,6 +35,7 @@ def ensure_desktop_workspace_root(workspace_dir: str, state_file: Path) -> bool:
         project_order.append(workspace_dir)
 
     data["electron-saved-workspace-roots"] = saved
+    data["active-workspace-roots"] = list(saved)
     data["project-order"] = project_order
 
     state_file.parent.mkdir(parents=True, exist_ok=True)

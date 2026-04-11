@@ -14,7 +14,9 @@ from .support import ensure_path_within_dir, extract_iso_timestamp
 
 
 def validate_session_id(session_id: str) -> str:
-    if not re.fullmatch(r"[A-Za-z0-9-]+", session_id or ""):
+    if not session_id:
+        raise ToolkitError("Session id must not be empty")
+    if not re.fullmatch(r"[A-Za-z0-9-]+", session_id):
         raise ToolkitError(f"Invalid session id: {session_id}")
     return session_id
 

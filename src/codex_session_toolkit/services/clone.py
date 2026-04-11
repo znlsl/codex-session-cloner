@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -126,8 +128,17 @@ def clone_session_file(
 
     if not dry_run:
         new_file_path.parent.mkdir(parents=True, exist_ok=True)
-        with new_file_path.open("w", encoding="utf-8") as fh:
-            fh.writelines(output_lines)
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=str(new_file_path.parent), suffix=".tmp")
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
+                fh.writelines(output_lines)
+            os.replace(tmp_path, str(new_file_path))
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     already_cloned_ids.add(current_id)
     action_prefix = "[DRY-RUN] Would create" if dry_run else "Created"
