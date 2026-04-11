@@ -150,7 +150,7 @@ def upsert_threads_table(
     cli_version = meta.get("cli_version", "")
     model = turn_context.get("model")
     reasoning_effort = turn_context.get("effort")
-    archived = 1 if "/archived_sessions/" in str(target_rollout) else 0
+    archived = 1 if "archived_sessions" in target_rollout.parts else 0
     archived_at = iso_to_epoch(updated_iso) if archived else None
 
     with sqlite3.connect(state_db) as conn:

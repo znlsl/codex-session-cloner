@@ -89,7 +89,7 @@ def export_session(
 
         manifest_data = OrderedDict(
             SESSION_ID=session_id,
-            RELATIVE_PATH=str(relative_path),
+            RELATIVE_PATH=relative_path.as_posix(),
             EXPORTED_AT=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             UPDATED_AT=last_updated,
             THREAD_NAME=first_prompt[:80],
@@ -117,7 +117,7 @@ def export_session(
         return ExportResult(
             session_id=session_id,
             bundle_dir=final_bundle_dir,
-            relative_path=str(relative_path),
+            relative_path=relative_path.as_posix(),
             session_kind=session_kind,
             session_cwd=session_cwd,
             source_machine=machine_label,
