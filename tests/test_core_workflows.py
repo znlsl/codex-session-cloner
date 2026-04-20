@@ -240,10 +240,12 @@ class SupportHelperTests(unittest.TestCase):
             self.skipTest("POSIX-only assertion")
         from codex_session_toolkit.support import _long_path
 
-        path = Path("/tmp/regular/path.txt")
-        self.assertEqual(_long_path(path), "/tmp/regular/path.txt")
+        self.assertEqual(_long_path(Path("/tmp/regular/path.txt")), "/tmp/regular/path.txt")
 
     def test_long_path_prefixes_long_windows_paths(self) -> None:
+        # Strings (not pathlib.Path) are passed so the test works on POSIX: pathlib.Path
+        # on Python 3.11 refuses to instantiate WindowsPath when os.name is patched to "nt",
+        # but _long_path only needs os.fspath-able input and operates on the returned text.
         from unittest import mock
 
         from codex_session_toolkit import support
@@ -255,16 +257,16 @@ class SupportHelperTests(unittest.TestCase):
             ]
             for absolute, expected_fn in cases:
                 with mock.patch.object(support.os.path, "abspath", return_value=absolute):
-                    self.assertEqual(support._long_path(Path(absolute)), expected_fn(absolute))
+                    self.assertEqual(support._long_path(absolute), expected_fn(absolute))
 
             already_prefixed = "\\\\?\\C:\\already\\prefixed.txt"
             with mock.patch.object(support.os.path, "abspath") as abspath_mock:
-                self.assertEqual(support._long_path(Path(already_prefixed)), already_prefixed)
+                self.assertEqual(support._long_path(already_prefixed), already_prefixed)
                 abspath_mock.assert_not_called()
 
             short = "C:\\short\\path.txt"
             with mock.patch.object(support.os.path, "abspath", return_value=short):
-                self.assertEqual(support._long_path(Path(short)), short)
+                self.assertEqual(support._long_path(short), short)
 
 
 class CoreWorkflowTests(unittest.TestCase):

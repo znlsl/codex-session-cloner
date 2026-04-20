@@ -129,7 +129,7 @@ def nearest_existing_parent(path_str: str) -> str:
         path = path.parent
 
 
-def _long_path(path: Path) -> str:
+def _long_path(path: "os.PathLike[str] | str") -> str:
     """Return a path string that survives Windows MAX_PATH (260) when used via Win32 APIs.
 
     On non-Windows platforms, this is a no-op. On Windows, paths longer than MAX_PATH are
