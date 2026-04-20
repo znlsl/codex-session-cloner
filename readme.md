@@ -38,10 +38,11 @@
 
 ### Repair / Maintenance
 
-- 克隆到当前 provider
-- Dry-run 预演 clone / clean / repair
+- 克隆到当前 provider（切换 provider 后自动跳过已克隆过的会话，幂等）
+- Dry-run 预演 clone / clean / repair / dedupe
 - 清理旧版无标记 clone
-- 修复 Desktop 可见性
+- **去重重复 clone**：当原始会话仍在时，保守删除对应的 clone 并同步清理 index / threads 表 / state hints，删除前自动备份到 `~/.codex/repair_backups/`
+- 修复 Desktop 可见性（线程标题不再回填为 UUID / 会话元信息片段，优先使用用户首条真实提问作为标题）
 - 修复并纳入 CLI 线程
 - 自动修复 / 重建 `session_index.jsonl`
 - 自动 upsert `state_*.sqlite` 的 `threads` 表
@@ -220,9 +221,9 @@ make check
 - 回车进入该功能页
 - 在功能页中选择具体动作再执行
 
-常用按键：
+常用按键（括号内是 vim 风格别名）：
 
-- `↑/↓` 或 `j/k`：移动
+- `↑/↓`（`j`/`k`）：移动
 - `Enter`：进入功能页或执行动作
 - `←/→`：切换上一页 / 下一页功能页
 - `PgUp/PgDn`：功能页切换
@@ -284,7 +285,11 @@ codex-session-toolkit clone-provider
 codex-session-toolkit clone-provider --dry-run
 codex-session-toolkit clean-clones
 codex-session-toolkit clean-clones --dry-run
+codex-session-toolkit dedupe-clones
+codex-session-toolkit dedupe-clones --dry-run
 ```
+
+`dedupe-clones` 只删除"原始会话仍然存在"的重复 clone，优先保留 active 会话，所有被删的 rollout 会先备份到 `~/.codex/repair_backups/dedupe-<timestamp>/`。建议先跑 `--dry-run` 看清单。
 
 浏览本机会话：
 
@@ -417,9 +422,15 @@ Bundle 内默认包含：
 - 导入前会校验 manifest、路径和 JSONL
 - 建议所有写入型动作第一次都先用 dry-run
 
+## Windows 长路径
+
+- 导出 / 导入的 Bundle 目录比较深（`codex_sessions/<machine>/<category>/<timestamp>/<session_id>/codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl`），在较短的工作目录下也可能逼近 Windows `MAX_PATH` 260 的限制
+- 工具在 Windows 上会对 ≥248 字符的路径自动加 `\\?\` / `\\?\UNC\` 扩展前缀，即便注册表没有 `LongPathsEnabled` 也能正常读写
+- 无需用户手动配置；如果仍遇到 `WinError 3` 一类的路径错误，优先检查 bundle root 是否过深
+
 ## 运行环境
 
-- Python >= 3.8
+- Python >= 3.9
 - 无第三方运行时依赖
 - 支持 Windows / macOS / Linux
 

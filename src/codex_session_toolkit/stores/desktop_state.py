@@ -162,7 +162,7 @@ def upsert_threads_table(
     archived = 1 if "archived_sessions" in target_rollout.parts else 0
     archived_at = iso_to_epoch(updated_iso) if archived else None
 
-    with sqlite3.connect(state_db) as conn:
+    with sqlite3.connect(state_db, timeout=30) as conn:
         cur = conn.cursor()
         row = cur.execute("select name from sqlite_master where type='table' and name='threads'").fetchone()
         if not row:

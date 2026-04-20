@@ -65,6 +65,8 @@ class PackagingSmokeTests(unittest.TestCase):
                 "clone_dry",
                 "clean",
                 "clean_dry",
+                "dedupe",
+                "dedupe_dry",
                 "repair_desktop",
                 "repair_desktop_dry",
                 "repair_desktop_cli",

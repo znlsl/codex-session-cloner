@@ -268,6 +268,85 @@ class SupportHelperTests(unittest.TestCase):
             with mock.patch.object(support.os.path, "abspath", return_value=short):
                 self.assertEqual(support._long_path(short), short)
 
+    def test_safe_copy2_copies_and_preserves_mtime(self) -> None:
+        from codex_session_toolkit.support import safe_copy2
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "src.txt"
+            dst = Path(tmpdir) / "dst.txt"
+            src.write_text("hello", encoding="utf-8")
+            os.utime(src, (1_700_000_000, 1_700_000_000))
+            safe_copy2(src, dst)
+            self.assertEqual(dst.read_text(encoding="utf-8"), "hello")
+            self.assertEqual(int(dst.stat().st_mtime), 1_700_000_000)
+
+
+class SessionPreviewHelperTests(unittest.TestCase):
+    def test_summarize_session_prompt_strips_ide_request_marker(self) -> None:
+        from codex_session_toolkit.stores.session_files import summarize_session_prompt
+
+        text = "# Context from my IDE setup:\n\n## Open tabs:\n- a.py\n\n## My request for Codex:\n修复 bug"
+        self.assertEqual(summarize_session_prompt(text), "修复 bug")
+
+    def test_summarize_session_prompt_strips_task_marker(self) -> None:
+        from codex_session_toolkit.stores.session_files import summarize_session_prompt
+
+        text = "# Resume context\n---\n## Task\n继续执行"
+        self.assertEqual(summarize_session_prompt(text), "继续执行")
+
+    def test_summarize_session_prompt_no_marker_returns_normalized_input(self) -> None:
+        from codex_session_toolkit.stores.session_files import summarize_session_prompt
+
+        self.assertEqual(summarize_session_prompt("  hello   world  "), "hello world")
+        self.assertEqual(summarize_session_prompt(""), "")
+
+    def test_is_placeholder_thread_name_detects_uuid_and_empty(self) -> None:
+        from codex_session_toolkit.stores.session_files import is_placeholder_thread_name
+
+        self.assertTrue(is_placeholder_thread_name(""))
+        self.assertTrue(is_placeholder_thread_name("   "))
+        self.assertTrue(is_placeholder_thread_name("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"))
+        sid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        self.assertTrue(is_placeholder_thread_name(sid, sid))
+        self.assertFalse(is_placeholder_thread_name("Real thread title"))
+        self.assertFalse(is_placeholder_thread_name("修复 bug"))
+
+    def test_is_placeholder_thread_name_flags_session_meta_markers(self) -> None:
+        from codex_session_toolkit.stores.session_files import is_placeholder_thread_name
+
+        self.assertTrue(is_placeholder_thread_name("<environment_context>"))
+        self.assertTrue(is_placeholder_thread_name("# AGENTS.md instructions"))
+
+
+class IndexStoreHelperTests(unittest.TestCase):
+    def test_remove_session_index_entries_drops_requested_ids(self) -> None:
+        from codex_session_toolkit.stores.index import (
+            load_existing_index,
+            remove_session_index_entries,
+            upsert_session_index,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            index_file = Path(tmpdir) / "session_index.jsonl"
+            upsert_session_index(index_file, "sid-1", "first", "2026-04-01T00:00:00Z")
+            upsert_session_index(index_file, "sid-2", "second", "2026-04-02T00:00:00Z")
+            upsert_session_index(index_file, "sid-3", "third", "2026-04-03T00:00:00Z")
+
+            remove_session_index_entries(index_file, {"sid-2"})
+            remaining = load_existing_index(index_file)
+            self.assertIn("sid-1", remaining)
+            self.assertNotIn("sid-2", remaining)
+            self.assertIn("sid-3", remaining)
+
+    def test_remove_session_index_entries_is_noop_for_missing_file(self) -> None:
+        from codex_session_toolkit.stores.index import remove_session_index_entries
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing = Path(tmpdir) / "nope.jsonl"
+            # Should not raise
+            remove_session_index_entries(missing, {"sid-1"})
+            self.assertFalse(missing.exists())
+
 
 class CoreWorkflowTests(unittest.TestCase):
     def test_session_summaries_use_first_meaningful_user_prompt(self) -> None:
