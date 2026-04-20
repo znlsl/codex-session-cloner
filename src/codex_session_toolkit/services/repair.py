@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
-import tempfile
 from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,7 +21,7 @@ from ..stores.session_files import (
     iter_session_files,
     parse_jsonl_records,
 )
-from ..support import backup_file, classify_session_kind, iso_to_epoch, nearest_existing_parent, normalize_iso
+from ..support import atomic_write, backup_file, classify_session_kind, iso_to_epoch, nearest_existing_parent, normalize_iso
 
 
 def _string_field(value: Any, default: str = "") -> str:
@@ -133,26 +131,17 @@ def repair_desktop(
             changed_sessions.append(str(session_file))
             if not dry_run:
                 backup_file(paths.code_dir, backup_root, backed_up, session_file, enabled=True)
-                tmp_fd, tmp_path = tempfile.mkstemp(dir=str(session_file.parent), suffix=".tmp")
-                try:
-                    with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
-                        for raw, obj in records:
-                            if not obj:
-                                fh.write(raw)
-                                continue
-                            if obj.get("type") == "session_meta" and isinstance(obj.get("payload"), dict):
-                                patched = dict(obj)
-                                patched["payload"] = updated_meta
-                                fh.write(json.dumps(patched, ensure_ascii=False, separators=(",", ":")) + "\n")
-                            else:
-                                fh.write(raw)
-                    os.replace(tmp_path, str(session_file))
-                except BaseException:
-                    try:
-                        os.unlink(tmp_path)
-                    except OSError:
-                        pass
-                    raise
+                with atomic_write(session_file) as fh:
+                    for raw, obj in records:
+                        if not obj:
+                            fh.write(raw)
+                            continue
+                        if obj.get("type") == "session_meta" and isinstance(obj.get("payload"), dict):
+                            patched = dict(obj)
+                            patched["payload"] = updated_meta
+                            fh.write(json.dumps(patched, ensure_ascii=False, separators=(",", ":")) + "\n")
+                        else:
+                            fh.write(raw)
 
         session_meta = updated_meta
         created_iso = normalize_iso(str(session_meta.get("timestamp", ""))) or normalize_iso(last_timestamp)
@@ -202,24 +191,14 @@ def repair_desktop(
 
     if not dry_run:
         backup_file(paths.code_dir, backup_root, backed_up, paths.index_file, enabled=True)
-        paths.index_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp_fd, tmp_path = tempfile.mkstemp(dir=str(paths.index_file.parent), suffix=".tmp")
-        try:
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
-                for entry in entries:
-                    obj = {
-                        "id": entry["id"],
-                        "thread_name": entry["thread_name"],
-                        "updated_at": entry["updated_at"],
-                    }
-                    fh.write(json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n")
-            os.replace(tmp_path, str(paths.index_file))
-        except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        with atomic_write(paths.index_file) as fh:
+            for entry in entries:
+                obj = {
+                    "id": entry["id"],
+                    "thread_name": entry["thread_name"],
+                    "updated_at": entry["updated_at"],
+                }
+                fh.write(json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n")
 
     try:
         state_data = json.loads(paths.state_file.read_text(encoding="utf-8")) if paths.state_file.exists() else {}
@@ -256,18 +235,8 @@ def repair_desktop(
 
     if not dry_run:
         backup_file(paths.code_dir, backup_root, backed_up, paths.state_file, enabled=True)
-        paths.state_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp_fd, tmp_path = tempfile.mkstemp(dir=str(paths.state_file.parent), suffix=".tmp")
-        try:
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
-                json.dump(state_data, fh, ensure_ascii=False, separators=(",", ":"))
-            os.replace(tmp_path, str(paths.state_file))
-        except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        with atomic_write(paths.state_file) as fh:
+            json.dump(state_data, fh, ensure_ascii=False, separators=(",", ":"))
 
     threads_updated = 0
     if state_db and state_db.exists():

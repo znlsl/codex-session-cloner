@@ -6,12 +6,45 @@ import os
 import platform
 import re
 import shutil
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional, TextIO
 
 from .errors import ToolkitError
 from .paths import CodexPaths
+
+
+@contextmanager
+def atomic_write(
+    path: Path,
+    *,
+    encoding: str = "utf-8",
+) -> Iterator[TextIO]:
+    """Yield a text file handle that is atomically moved over ``path`` on successful close.
+
+    The temporary file lives in ``path.parent`` (same filesystem → ``os.replace`` is atomic).
+    If the caller raises or the final replace fails, the temp file is unlinked and the
+    exception re-raised so the original ``path`` is never left half-written.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    fh = os.fdopen(tmp_fd, "w", encoding=encoding)
+    try:
+        yield fh
+        fh.close()
+        os.replace(tmp_path, str(path))
+    except BaseException:
+        try:
+            fh.close()
+        except Exception:
+            pass
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def extract_iso_timestamp(raw_value: str) -> str:

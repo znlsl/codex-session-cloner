@@ -129,23 +129,27 @@ def write_session(
     timestamp: str = "2026-04-10T10:00:00Z",
     user_message: str = "",
     include_env_context: bool = False,
+    cloned_from: str = "",
 ) -> Path:
     base = home / ".codex" / ("archived_sessions" if archived else "sessions") / "2026" / "04" / "10"
     base.mkdir(parents=True, exist_ok=True)
     rollout = base / f"rollout-2026-04-10T10-00-00-{session_id}.jsonl"
+    payload = {
+        "id": session_id,
+        "model_provider": provider,
+        "source": source,
+        "originator": originator,
+        "cwd": str(cwd),
+        "timestamp": timestamp,
+        "cli_version": "0.1.0",
+    }
+    if cloned_from:
+        payload["cloned_from"] = cloned_from
     lines = [
         {
             "timestamp": timestamp,
             "type": "session_meta",
-            "payload": {
-                "id": session_id,
-                "model_provider": provider,
-                "source": source,
-                "originator": originator,
-                "cwd": str(cwd),
-                "timestamp": timestamp,
-                "cli_version": "0.1.0",
-            },
+            "payload": payload,
         },
     ]
     if include_env_context:
@@ -695,6 +699,46 @@ class CoreWorkflowTests(unittest.TestCase):
             count = conn.execute("select count(*) from threads where id = ?", (clone_id,)).fetchone()[0]
             conn.close()
             self.assertEqual(count, 0)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_dedupe_clones_skips_chain_intermediates(self) -> None:
+        # Build A→B→C chain: B is A's clone, C is B's clone. Running dedupe should
+        # keep B (chain intermediate) to avoid orphaning C's lineage; only leaf pair
+        # without downstream clones qualifies.
+        tmpdir = tempfile.mkdtemp()
+        try:
+            workspace = Path(tmpdir) / "workspace"
+            home = Path(tmpdir) / "home"
+            workspace.mkdir()
+            write_config(home, "target-provider")
+            project_cwd = workspace / "project-chain"
+            project_cwd.mkdir()
+
+            a_id = "aaaaaaaa-0000-4000-8000-000000000001"
+            b_id = "bbbbbbbb-0000-4000-8000-000000000002"
+            c_id = "cccccccc-0000-4000-8000-000000000003"
+
+            write_session(home, a_id, provider="old-provider", source="vscode",
+                          originator="Codex Desktop", cwd=project_cwd)
+            # B is A's clone, in target provider
+            write_session(home, b_id, provider="target-provider", source="vscode",
+                          originator="Codex Desktop", cwd=project_cwd,
+                          cloned_from=a_id)
+            # C is B's clone, also in target provider
+            write_session(home, c_id, provider="target-provider", source="vscode",
+                          originator="Codex Desktop", cwd=project_cwd,
+                          cloned_from=b_id)
+
+            paths = CodexPaths(home=home, cwd=workspace)
+
+            result = dedupe_clones(paths, target_provider="target-provider", dry_run=True)
+
+            # Only (delete C, keep B) is safe: deleting B would orphan C.
+            delete_paths = {str(p) for p, _, _ in result.duplicate_pairs}
+            self.assertEqual(len(result.duplicate_pairs), 1)
+            self.assertTrue(any(c_id in p for p in delete_paths))
+            self.assertFalse(any(b_id in p for p in delete_paths))
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

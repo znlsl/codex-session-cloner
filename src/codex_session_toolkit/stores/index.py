@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
-import tempfile
 from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, Optional
 
-from ..support import normalize_iso
+from ..support import atomic_write, normalize_iso
 
 
 def salvage_index_line(raw: str) -> Optional[dict]:
@@ -103,19 +101,9 @@ def upsert_session_index(index_file: Path, session_id: str, thread_name: str, up
         "updated_at": updated_at,
     }
 
-    index_file.parent.mkdir(parents=True, exist_ok=True)
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(index_file.parent), suffix=".tmp")
-    try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
-            for obj in entries.values():
-                fh.write(json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n")
-        os.replace(tmp_path, str(index_file))
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    with atomic_write(index_file) as fh:
+        for obj in entries.values():
+            fh.write(json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n")
 
     if discarded_invalid_lines:
         print(
@@ -157,19 +145,9 @@ def remove_session_index_entries(index_file: Path, session_ids: set[str]) -> Non
                 "updated_at": normalize_iso(str(obj.get("updated_at", ""))),
             }
 
-    index_file.parent.mkdir(parents=True, exist_ok=True)
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(index_file.parent), suffix=".tmp")
-    try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
-            for obj in entries.values():
-                fh.write(json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n")
-        os.replace(tmp_path, str(index_file))
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    with atomic_write(index_file) as fh:
+        for obj in entries.values():
+            fh.write(json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n")
 
     if discarded_invalid_lines:
         print(
@@ -224,19 +202,9 @@ def batch_upsert_session_index(index_file: Path, updates: list[tuple[str, str, s
             "updated_at": updated_at,
         }
 
-    index_file.parent.mkdir(parents=True, exist_ok=True)
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(index_file.parent), suffix=".tmp")
-    try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
-            for obj in entries.values():
-                fh.write(json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n")
-        os.replace(tmp_path, str(index_file))
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    with atomic_write(index_file) as fh:
+        for obj in entries.values():
+            fh.write(json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n")
 
     if discarded_invalid_lines:
         print(

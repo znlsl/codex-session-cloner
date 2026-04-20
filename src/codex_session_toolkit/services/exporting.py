@@ -23,6 +23,7 @@ from ..stores.session_files import (
     find_session_file,
 )
 from ..support import (
+    atomic_write,
     build_batch_export_root,
     build_machine_bundle_root,
     build_single_export_root,
@@ -197,22 +198,13 @@ def export_sessions_for_kind(
             failed_exports.append((session_id, str(exc)))
 
     manifest_file = export_root / f"_{manifest_stem}_export_manifest.txt"
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(export_root), suffix=".tmp")
-    try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
-            fh.write(f"# exported_at={datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}\n")
-            fh.write(f"# session_kind={session_kind}\n")
-            fh.write(f"# active_only={1 if active_only else 0}\n")
-            fh.write(f"# count={len(success_ids)}\n")
-            for session_id in success_ids:
-                fh.write(session_id + "\n")
-        os.replace(tmp_path, str(manifest_file))
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    with atomic_write(manifest_file) as fh:
+        fh.write(f"# exported_at={datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}\n")
+        fh.write(f"# session_kind={session_kind}\n")
+        fh.write(f"# active_only={1 if active_only else 0}\n")
+        fh.write(f"# count={len(success_ids)}\n")
+        for session_id in success_ids:
+            fh.write(session_id + "\n")
 
     return BatchExportResult(
         summary_label=summary_label,

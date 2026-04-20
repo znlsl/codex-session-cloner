@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import sys
-import tempfile
 from pathlib import Path
 
 from ..errors import ToolkitError
 from ..stores.history import first_history_messages
 from ..stores.session_files import build_session_preview, is_placeholder_thread_name
-from ..support import iso_to_epoch
+from ..support import atomic_write, iso_to_epoch
 
 
 def _is_subpath(child: Path, parent: Path) -> bool:
@@ -50,18 +48,8 @@ def ensure_desktop_workspace_root(workspace_dir: str, state_file: Path) -> bool:
     data["active-workspace-roots"] = list(saved)
     data["project-order"] = project_order
 
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(state_file.parent), suffix=".tmp")
-    try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
-        os.replace(tmp_path, str(state_file))
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    with atomic_write(state_file) as fh:
+        json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
     return True
 
 

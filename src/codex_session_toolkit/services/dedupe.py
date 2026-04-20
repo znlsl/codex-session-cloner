@@ -105,6 +105,15 @@ def dedupe_clones(
             continue
         sessions_by_id[session_id] = (session_file, payload)
 
+    # Build the reverse-edge set: which session ids appear as someone else's `cloned_from`?
+    # If B is A's clone AND C is B's clone, B is a chain intermediate — deleting B would
+    # orphan C's lineage. Skip any candidate that is still referenced by a downstream clone.
+    referenced_as_origin: set[str] = set()
+    for _, payload in sessions_by_id.values():
+        origin = payload.get("cloned_from")
+        if isinstance(origin, str) and origin:
+            referenced_as_origin.add(origin)
+
     duplicate_pairs: list[tuple[Path, Path, str]] = []
     seen_delete_paths: set[str] = set()
 
@@ -118,6 +127,10 @@ def dedupe_clones(
 
         original = sessions_by_id.get(cloned_from)
         if original is None:
+            continue
+
+        # Skip chain intermediates: this clone is also an origin for another clone.
+        if clone_session_id in referenced_as_origin:
             continue
 
         original_path, _ = original

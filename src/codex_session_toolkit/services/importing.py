@@ -30,6 +30,7 @@ from ..stores.session_files import (
     is_placeholder_thread_name,
 )
 from ..support import (
+    atomic_write,
     classify_session_kind,
     iso_to_epoch,
     nearest_existing_parent,
@@ -219,17 +220,8 @@ def import_session(
             if merged and not merged.endswith("\n"):
                 merged += "\n"
             merged += "".join(new_lines)
-            tmp_fd, tmp_path = tempfile.mkstemp(dir=str(paths.history_file.parent), suffix=".tmp")
-            try:
-                with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
-                    fh.write(merged)
-                os.replace(tmp_path, str(paths.history_file))
-            except BaseException:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-                raise
+            with atomic_write(paths.history_file) as fh:
+                fh.write(merged)
 
         effective_thread_name = (
             existing_index.get(session_id, {}).get("thread_name")
