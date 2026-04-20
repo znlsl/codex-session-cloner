@@ -9,6 +9,7 @@ import tempfile
 from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from ..errors import ToolkitError
 from ..models import RepairResult
@@ -16,8 +17,25 @@ from ..paths import CodexPaths
 from ..services.provider import detect_provider
 from ..stores.history import first_history_messages
 from ..stores.index import load_existing_index
-from ..stores.session_files import iter_session_files, parse_jsonl_records
+from ..stores.session_files import (
+    build_session_preview,
+    is_placeholder_thread_name,
+    iter_session_files,
+    parse_jsonl_records,
+)
 from ..support import backup_file, classify_session_kind, iso_to_epoch, nearest_existing_parent, normalize_iso
+
+
+def _string_field(value: Any, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _sqlite_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bytes)):
+        return value
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return str(value)
 
 
 def repair_desktop(
@@ -80,8 +98,8 @@ def repair_desktop(
             skipped_sessions.append(str(session_file))
             continue
 
-        source_name = session_meta.get("source", "")
-        originator_name = session_meta.get("originator", "")
+        source_name = _string_field(session_meta.get("source"))
+        originator_name = _string_field(session_meta.get("originator"))
         session_kind = classify_session_kind(source_name, originator_name)
         desktop_like = session_kind == "desktop"
         convert_cli = include_cli and session_kind == "cli"
@@ -137,7 +155,6 @@ def repair_desktop(
                     raise
 
         session_meta = updated_meta
-        thread_name = existing_index.get(session_id, {}).get("thread_name") or history_first_messages.get(session_id) or session_id
         created_iso = normalize_iso(str(session_meta.get("timestamp", ""))) or normalize_iso(last_timestamp)
         updated_iso = (
             normalize_iso(last_timestamp)
@@ -146,6 +163,13 @@ def repair_desktop(
             or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         )
         cwd = session_meta.get("cwd", "") if isinstance(session_meta.get("cwd", ""), str) else ""
+        preview_title = build_session_preview(history_first_messages.get(session_id, ""), session_file, cwd)
+        existing_thread_name = existing_index.get(session_id, {}).get("thread_name", "")
+        thread_name = (
+            preview_title
+            if is_placeholder_thread_name(existing_thread_name, session_id)
+            else existing_thread_name or preview_title or session_id
+        )
         if cwd:
             candidate = nearest_existing_parent(cwd) or cwd
             if candidate and candidate not in workspace_candidates:
@@ -163,7 +187,7 @@ def repair_desktop(
                 "cwd": cwd,
                 "created_iso": created_iso or updated_iso,
                 "updated_iso": updated_iso,
-                "first_user_message": history_first_messages.get(session_id, thread_name),
+                "first_user_message": preview_title or thread_name,
                 "sandbox_policy": json.dumps(turn_context.get("sandbox_policy", {}), ensure_ascii=False, separators=(",", ":")),
                 "approval_mode": turn_context.get("approval_policy", "on-request"),
                 "model_provider": session_meta.get("model_provider", "") if isinstance(session_meta.get("model_provider", ""), str) else "",
@@ -261,7 +285,7 @@ def repair_desktop(
                         "rollout_path": str(entry["session_file"]),
                         "created_at": iso_to_epoch(entry["created_iso"]),
                         "updated_at": iso_to_epoch(entry["updated_iso"]),
-                        "source": entry["source"] or "vscode",
+                        "source": (entry["source"] if isinstance(entry["source"], str) and entry["source"] else "vscode"),
                         "model_provider": provider,
                         "cwd": entry["cwd"],
                         "title": entry["thread_name"],
@@ -282,7 +306,7 @@ def repair_desktop(
                     col_list = ", ".join(insert_cols)
                     update_cols = [name for name in insert_cols if name != "id"]
                     update_sql = ", ".join(f"{name}=excluded.{name}" for name in update_cols)
-                    values = [data[name] for name in insert_cols]
+                    values = [_sqlite_value(data[name]) for name in insert_cols]
                     sql = f"insert into threads ({col_list}) values ({placeholders}) on conflict(id) do update set {update_sql}"
                     if not dry_run:
                         cur.execute(sql, values)

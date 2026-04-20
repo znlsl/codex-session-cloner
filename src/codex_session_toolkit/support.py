@@ -129,6 +129,32 @@ def nearest_existing_parent(path_str: str) -> str:
         path = path.parent
 
 
+def _long_path(path: Path) -> str:
+    """Return a path string that survives Windows MAX_PATH (260) when used via Win32 APIs.
+
+    On non-Windows platforms, this is a no-op. On Windows, paths longer than MAX_PATH are
+    prefixed with ``\\\\?\\`` (or ``\\\\?\\UNC\\`` for UNC roots), which tells Win32 APIs
+    to accept up to ~32K characters and bypasses the legacy limit even on installations
+    without ``LongPathsEnabled``.
+    """
+    text = os.fspath(path)
+    if os.name != "nt":
+        return text
+    if text.startswith("\\\\?\\"):
+        return text
+    absolute = os.path.abspath(text)
+    if len(absolute) < 248:
+        return absolute
+    if absolute.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + absolute[2:]
+    return "\\\\?\\" + absolute
+
+
+def safe_copy2(src: Path, dst: Path) -> None:
+    """``shutil.copy2`` wrapper that tolerates long destination paths on Windows."""
+    shutil.copy2(_long_path(src), _long_path(dst))
+
+
 def backup_file(code_dir: Path, backup_root: Path, backed_up: set[str], path: Path, *, enabled: bool) -> None:
     if not enabled or not path.exists():
         return
@@ -138,5 +164,5 @@ def backup_file(code_dir: Path, backup_root: Path, backed_up: set[str], path: Pa
     backup_root.mkdir(parents=True, exist_ok=True)
     target = backup_root / path.relative_to(code_dir)
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(path, target)
+    safe_copy2(path, target)
     backed_up.add(resolved)

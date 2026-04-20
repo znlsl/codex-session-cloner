@@ -1,6 +1,7 @@
 import json
 import os
 import shlex
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -18,11 +19,13 @@ from codex_session_toolkit.paths import CodexPaths  # noqa: E402
 from codex_session_toolkit.models import BundleSummary  # noqa: E402
 from codex_session_toolkit.services.browse import get_bundle_summaries, get_session_summaries, validate_bundles  # noqa: E402
 from codex_session_toolkit.services.clone import clone_to_provider  # noqa: E402
+from codex_session_toolkit.services.dedupe import dedupe_clones  # noqa: E402
 from codex_session_toolkit.services.exporting import export_active_desktop_all, export_session  # noqa: E402
 from codex_session_toolkit.services.importing import import_desktop_all, import_session  # noqa: E402
 from codex_session_toolkit.services.repair import repair_desktop  # noqa: E402
 from codex_session_toolkit.support import machine_label_to_key  # noqa: E402
 from codex_session_toolkit.stores.bundles import collect_known_bundle_summaries, latest_distinct_bundle_summaries  # noqa: E402
+from codex_session_toolkit.stores.index import load_existing_index  # noqa: E402
 from codex_session_toolkit.stores.session_files import iter_session_files, read_session_payload  # noqa: E402
 from codex_session_toolkit.validation import load_manifest, validate_relative_path  # noqa: E402
 
@@ -231,6 +234,39 @@ def write_bundle_manifest(
             fh.write(f"{key}={shlex.quote(value)}\n")
 
 
+class SupportHelperTests(unittest.TestCase):
+    def test_long_path_is_noop_on_posix(self) -> None:
+        if os.name == "nt":
+            self.skipTest("POSIX-only assertion")
+        from codex_session_toolkit.support import _long_path
+
+        path = Path("/tmp/regular/path.txt")
+        self.assertEqual(_long_path(path), "/tmp/regular/path.txt")
+
+    def test_long_path_prefixes_long_windows_paths(self) -> None:
+        from unittest import mock
+
+        from codex_session_toolkit import support
+
+        with mock.patch.object(support.os, "name", "nt"):
+            cases = [
+                ("C:\\" + "a" * 260 + "\\file.txt", lambda s: "\\\\?\\" + s),
+                ("\\\\server\\share\\" + "b" * 260 + "\\file.txt", lambda s: "\\\\?\\UNC\\" + s[2:]),
+            ]
+            for absolute, expected_fn in cases:
+                with mock.patch.object(support.os.path, "abspath", return_value=absolute):
+                    self.assertEqual(support._long_path(Path(absolute)), expected_fn(absolute))
+
+            already_prefixed = "\\\\?\\C:\\already\\prefixed.txt"
+            with mock.patch.object(support.os.path, "abspath") as abspath_mock:
+                self.assertEqual(support._long_path(Path(already_prefixed)), already_prefixed)
+                abspath_mock.assert_not_called()
+
+            short = "C:\\short\\path.txt"
+            with mock.patch.object(support.os.path, "abspath", return_value=short):
+                self.assertEqual(support._long_path(Path(short)), short)
+
+
 class CoreWorkflowTests(unittest.TestCase):
     def test_session_summaries_use_first_meaningful_user_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -256,6 +292,60 @@ class CoreWorkflowTests(unittest.TestCase):
                 summaries[0].preview,
                 "https://github.com/xiaotian2333/newapi-checkin.git 把这个醒目拉下来看看",
             )
+
+    def test_session_summaries_strip_ide_context_wrapper_from_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir) / "home"
+            write_config(home, "source-provider")
+
+            session_id = "30303030-3030-3030-3030-303030303030"
+            write_session(
+                home,
+                session_id,
+                provider="source-provider",
+                source="vscode",
+                originator="Codex Desktop",
+                cwd=Path("/Users/example/project-b"),
+                archived=True,
+                user_message=(
+                    "# Context from my IDE setup:\n\n"
+                    "## Open tabs:\n"
+                    "- config.toml: c:\\Users\\zhanghang\\.codex\\config.toml\n\n"
+                    "## My request for Codex:\n"
+                    "帮我看一下为什么标题回填成 UUID"
+                ),
+            )
+
+            summaries = get_session_summaries(CodexPaths(home=home))
+            self.assertEqual(len(summaries), 1)
+            self.assertEqual(summaries[0].preview, "帮我看一下为什么标题回填成 UUID")
+
+    def test_session_summaries_strip_resume_context_wrapper_from_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir) / "home"
+            write_config(home, "source-provider")
+
+            session_id = "31313131-3131-3131-3131-313131313131"
+            write_session(
+                home,
+                session_id,
+                provider="source-provider",
+                source="vscode",
+                originator="Codex Desktop",
+                cwd=Path("/Users/example/project-c"),
+                archived=True,
+                user_message=(
+                    "# Resume context (Codex History Viewer)\n"
+                    "- Source: `example`\n"
+                    "---\n"
+                    "## Task\n"
+                    "帮我继续排查为什么历史标题显示成 UUID"
+                ),
+            )
+
+            summaries = get_session_summaries(CodexPaths(home=home))
+            self.assertEqual(len(summaries), 1)
+            self.assertEqual(summaries[0].preview, "帮我继续排查为什么历史标题显示成 UUID")
 
     def test_session_summaries_fall_back_to_workspace_name_for_windows_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -474,6 +564,94 @@ class CoreWorkflowTests(unittest.TestCase):
             self.assertEqual(cloned_payload["cloned_from"], original_id)
             self.assertEqual(cloned_payload["original_provider"], "old-provider")
 
+    def test_dedupe_clones_removes_duplicate_clone_and_cleans_index_and_threads(self) -> None:
+        tmpdir = tempfile.mkdtemp()
+        try:
+            workspace = Path(tmpdir) / "workspace"
+            home = Path(tmpdir) / "home"
+            workspace.mkdir()
+            write_config(home, "target-provider")
+            write_state_file(home)
+            create_threads_db(home)
+
+            project_cwd = workspace / "project-d"
+            project_cwd.mkdir()
+            original_id = "41414141-4141-4141-4141-414141414141"
+            write_session(
+                home,
+                original_id,
+                provider="old-provider",
+                source="vscode",
+                originator="Codex Desktop",
+                cwd=project_cwd,
+                archived=False,
+                user_message="修复重复 clone",
+            )
+
+            paths = CodexPaths(home=home, cwd=workspace)
+            clone_to_provider(paths, target_provider="target-provider", dry_run=False)
+            repair_desktop(paths, target_provider="target-provider")
+
+            sessions = list(iter_session_files(paths, active_only=False))
+            clone_sessions = [path for path in sessions if read_session_payload(path).get("cloned_from") == original_id]
+            self.assertEqual(len(clone_sessions), 1)
+            clone_path = clone_sessions[0]
+            clone_id = read_session_payload(clone_path)["id"]
+
+            dry_run_result = dedupe_clones(paths, target_provider="target-provider", dry_run=True)
+            self.assertEqual(len(dry_run_result.duplicate_pairs), 1)
+
+            result = dedupe_clones(paths, target_provider="target-provider", dry_run=False)
+            self.assertEqual(len(result.deleted_session_ids), 1)
+            self.assertEqual(result.deleted_session_ids[0], clone_id)
+            self.assertFalse(clone_path.exists())
+
+            index_entries = load_existing_index(home / ".codex" / "session_index.jsonl")
+            self.assertIn(original_id, index_entries)
+            self.assertNotIn(clone_id, index_entries)
+
+            conn = sqlite3.connect(home / ".codex" / "state_0001.sqlite")
+            count = conn.execute("select count(*) from threads where id = ?", (clone_id,)).fetchone()[0]
+            conn.close()
+            self.assertEqual(count, 0)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_clone_to_provider_is_idempotent_after_first_clone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir) / "workspace"
+            home = Path(tmpdir) / "home"
+            workspace.mkdir()
+            write_config(home, "target-provider")
+            original_cwd = workspace / "project-b"
+            original_cwd.mkdir()
+            original_id = "12111111-1111-1111-1111-111111111111"
+            write_session(
+                home,
+                original_id,
+                provider="old-provider",
+                source="cli",
+                originator="codex_cli_rs",
+                cwd=original_cwd,
+            )
+            paths = CodexPaths(home=home, cwd=workspace)
+
+            with pushd(workspace):
+                first_result = clone_to_provider(paths)
+                second_result = clone_to_provider(paths)
+
+            self.assertEqual(first_result.stats["cloned"], 1)
+            self.assertEqual(second_result.stats["cloned"], 0)
+            self.assertEqual(second_result.stats["skipped_exists"], 1)
+
+            sessions = list(iter_session_files(paths, active_only=True))
+            self.assertEqual(len(sessions), 2)
+
+            cloned_files = [
+                path for path in sessions if read_session_payload(path).get("cloned_from") == original_id
+            ]
+            self.assertEqual(len(cloned_files), 1)
+
     def test_export_validate_and_import_roundtrip_updates_desktop_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir) / "workspace"
@@ -593,6 +771,48 @@ class CoreWorkflowTests(unittest.TestCase):
             state_data = json.loads((home / ".codex" / ".codex-global-state.json").read_text(encoding="utf-8"))
             self.assertIn(str(desktop_cwd), state_data["electron-saved-workspace-roots"])
             self.assertIn(str(cli_cwd), state_data["electron-saved-workspace-roots"])
+
+    def test_repair_desktop_uses_session_preview_when_thread_name_is_uuid_placeholder(self) -> None:
+        tmpdir = tempfile.mkdtemp()
+        try:
+            workspace = Path(tmpdir) / "workspace"
+            home = Path(tmpdir) / "home"
+            workspace.mkdir()
+            write_config(home, "target-provider")
+            write_state_file(home)
+            create_threads_db(home)
+
+            project_cwd = workspace / "project"
+            project_cwd.mkdir()
+
+            clone_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            write_session(
+                home,
+                clone_id,
+                provider="target-provider",
+                source="vscode",
+                originator="Codex Desktop",
+                cwd=project_cwd,
+                user_message="修复波动监控标题回填逻辑",
+            )
+
+            paths = CodexPaths(home=home)
+            result = repair_desktop(paths)
+
+            self.assertEqual(result.threads_updated, 1)
+
+            index_entry = load_existing_index(home / ".codex" / "session_index.jsonl")[clone_id]
+            self.assertEqual(index_entry["thread_name"], "修复波动监控标题回填逻辑")
+
+            conn = sqlite3.connect(home / ".codex" / "state_0001.sqlite")
+            row = conn.execute(
+                "select title, first_user_message from threads where id = ?",
+                (clone_id,),
+            ).fetchone()
+            conn.close()
+            self.assertEqual(row, ("修复波动监控标题回填逻辑", "修复波动监控标题回填逻辑"))
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_import_preserves_newer_local_session_rollout(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -791,6 +1011,84 @@ class CoreWorkflowTests(unittest.TestCase):
                     / f"rollout-2026-03-19T22-00-41-{session_id}.jsonl"
                 ).exists()
             )
+
+    def test_import_session_uses_session_preview_when_bundle_thread_name_is_uuid(self) -> None:
+        tmpdir = tempfile.mkdtemp()
+        try:
+            workspace = Path(tmpdir) / "workspace"
+            dst_home = Path(tmpdir) / "dst_home"
+            workspace.mkdir()
+            write_config(dst_home, "target-provider")
+            write_state_file(dst_home)
+            create_threads_db(dst_home)
+
+            session_id = "abababab-abab-4aba-8aba-abababababab"
+            bundle_dir = (
+                workspace
+                / "codex_sessions"
+                / "Windows-PC"
+                / "single"
+                / "20260411-100000-000001"
+                / session_id
+            )
+            session_rel = Path("sessions/2026/04/10") / f"rollout-2026-04-10T10-00-00-{session_id}.jsonl"
+            bundled_session = bundle_dir / "codex" / session_rel
+            bundled_session.parent.mkdir(parents=True, exist_ok=True)
+            with bundled_session.open("w", encoding="utf-8") as fh:
+                for item in [
+                    {
+                        "timestamp": "2026-04-10T10:00:00Z",
+                        "type": "session_meta",
+                        "payload": {
+                            "id": session_id,
+                            "model_provider": "source-provider",
+                            "source": "vscode",
+                            "originator": "Codex Desktop",
+                            "cwd": str(workspace / "project"),
+                            "timestamp": "2026-04-10T10:00:00Z",
+                            "cli_version": "0.1.0",
+                        },
+                    },
+                    {
+                        "timestamp": "2026-04-10T10:01:00Z",
+                        "type": "response_item",
+                        "payload": {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "修复导入标题回填"}],
+                        },
+                    },
+                ]:
+                    fh.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n")
+            (bundle_dir / "history.jsonl").write_text("", encoding="utf-8")
+            write_bundle_manifest(
+                bundle_dir,
+                session_id=session_id,
+                relative_path=f"sessions/2026/04/10/rollout-2026-04-10T10-00-00-{session_id}.jsonl",
+                export_machine="Windows-PC",
+                export_machine_key="Windows-PC",
+                thread_name=session_id,
+                session_cwd=str(workspace / "project"),
+            )
+
+            with pushd(workspace):
+                paths = CodexPaths(home=dst_home, cwd=workspace)
+                result = import_session(paths, str(bundle_dir), desktop_visible=True)
+
+            self.assertEqual(result.session_id, session_id)
+
+            index_entry = load_existing_index(dst_home / ".codex" / "session_index.jsonl")[session_id]
+            self.assertEqual(index_entry["thread_name"], "修复导入标题回填")
+
+            conn = sqlite3.connect(dst_home / ".codex" / "state_0001.sqlite")
+            row = conn.execute(
+                "select title, first_user_message from threads where id = ?",
+                (session_id,),
+            ).fetchone()
+            conn.close()
+            self.assertEqual(row, ("修复导入标题回填", "修复导入标题回填"))
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_import_desktop_all_filters_machine_and_latest_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

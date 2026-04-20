@@ -30,6 +30,7 @@ from ..support import (
     detect_machine_key,
     detect_machine_label,
     normalize_bundle_root,
+    safe_copy2,
 )
 from ..validation import validate_jsonl_file, validate_session_id
 
@@ -60,7 +61,7 @@ def export_session(
         raise ToolkitError(f"Unexpected session path: {session_file}") from exc
 
     final_bundle_dir = bundle_root / session_id
-    stage_root = Path(tempfile.mkdtemp(prefix=f".{session_id}.tmp.", dir=str(bundle_root)))
+    stage_root = Path(tempfile.mkdtemp(prefix=".cst-exp-", dir=str(bundle_root)))
     stage_bundle_dir = stage_root / session_id
     old_bundle_backup: Optional[Path] = None
 
@@ -72,7 +73,7 @@ def export_session(
         (bundle_codex_dir / relative_path.parent).mkdir(parents=True, exist_ok=True)
 
         bundled_session = bundle_codex_dir / relative_path
-        shutil.copy2(session_file, bundled_session)
+        safe_copy2(session_file, bundled_session)
         validate_jsonl_file(bundled_session, "Bundled session file", "session", session_id)
 
         history_lines = collect_history_lines_for_session(paths.history_file, session_id)
