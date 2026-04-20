@@ -224,9 +224,10 @@ class ToolkitTuiApp:
             cmd += " " + " ".join(args)
         return cmd
 
-    def _screen_layout(self) -> Tuple[int, bool]:
-        box_width = tui_width(term_width())
-        return box_width, box_width >= 70
+    def _screen_layout(self) -> Tuple[int, int, bool]:
+        screen_width = term_width()
+        box_width = min(tui_width(screen_width), 96)
+        return screen_width, box_width, screen_width > box_width + 4
 
     def _screen_height(self) -> int:
         return max(12, term_height())
@@ -251,6 +252,42 @@ class ToolkitTuiApp:
                 tabs.append(style_text(label, Ansi.DIM))
         return ellipsize_middle("  ".join(tabs), width)
 
+    def _brand_header_lines(self, title: str, subtitle: str = "") -> List[str]:
+        screen_width, box_width, center = self._screen_layout()
+        logo_width = min(FIXED_THEME_LOGO_WIDTH, max(32, box_width - 6))
+        lines: List[str] = []
+        for line in app_logo_lines(max_width=logo_width):
+            lines.append(align_line(line, screen_width, center=center))
+        lines.append(align_line(style_text("Codex 会话工具箱", Ansi.BOLD, Ansi.CYAN), screen_width, center=center))
+        lines.append(align_line(style_text(title, Ansi.DIM), screen_width, center=center))
+        if subtitle:
+            lines.append(align_line(style_text(subtitle, Ansi.DIM), screen_width, center=center))
+        return lines
+
+    def _append_box(
+        self,
+        output_lines: List[str],
+        lines: Sequence[str],
+        *,
+        box_width: int,
+        screen_width: int,
+        center: bool,
+        border_codes: Tuple[str, ...],
+    ) -> None:
+        for line in render_box(lines, width=box_width, border_codes=border_codes):
+            output_lines.append(align_line(line, screen_width, center=center))
+
+    def _action_badge(self, menu_action: TuiMenuAction) -> str:
+        if menu_action.is_dangerous and not menu_action.is_dry_run:
+            return style_text("DANGER", Ansi.BOLD, Ansi.RED)
+        if menu_action.is_dry_run:
+            return style_text("DRY-RUN", Ansi.BOLD, Ansi.YELLOW)
+        if menu_action.section_id == "bundle":
+            return style_text("BUNDLE", Ansi.BOLD, Ansi.MAGENTA)
+        if menu_action.section_id == "repair":
+            return style_text("REPAIR", Ansi.BOLD, Ansi.GREEN)
+        return style_text("SESSION", Ansi.BOLD, Ansi.CYAN)
+
     def _action_window(self, total_count: int, selected_offset: int, max_visible: int) -> Tuple[int, int]:
         if total_count <= 0:
             return 0, 0
@@ -268,13 +305,9 @@ class ToolkitTuiApp:
 
     def _print_branded_header(self, title: str, subtitle: str = "") -> int:
         clear_screen()
-        box_width, center = self._screen_layout()
-        for line in app_logo_lines(max_width=FIXED_THEME_LOGO_WIDTH):
-            print(align_line(line, box_width, center=center))
-        print(align_line(style_text("Codex 会话工具箱", Ansi.BOLD, Ansi.CYAN), box_width, center=center))
-        print(align_line(style_text(title, Ansi.DIM), box_width, center=center))
-        if subtitle:
-            print(align_line(style_text(subtitle, Ansi.DIM), box_width, center=center))
+        _, box_width, _ = self._screen_layout()
+        for line in self._brand_header_lines(title, subtitle):
+            print(line)
         print("")
         return box_width
 
@@ -1213,25 +1246,36 @@ class ToolkitTuiApp:
         input("按 Enter 返回菜单...")
 
     def _render_home(self, selected_section_index: int) -> None:
-        box_width, center = self._screen_layout()
+        screen_width, box_width, center = self._screen_layout()
         pointer = glyphs().get("pointer", ">")
         output_lines: List[str] = []
         selected_section = self.menu_sections[selected_section_index]
+        selected_actions = self._actions_for_section(selected_section.section_id)
 
-        for line in app_logo_lines(max_width=FIXED_THEME_LOGO_WIDTH):
-            output_lines.append(align_line(line, box_width, center=center))
-        output_lines.append(align_line(style_text("Codex 会话工具箱", Ansi.BOLD, Ansi.CYAN), box_width, center=center))
-        output_lines.append(align_line(style_text("选择一个功能域，回车进入对应功能页", Ansi.DIM), box_width, center=center))
-        output_lines.append(align_line(self._section_tabs_line(selected_section_index, box_width), box_width, center=center))
+        output_lines.extend(
+            self._brand_header_lines(
+                "Session cloning, bundle transfer, and desktop repair",
+                "选择一个功能域，回车进入对应功能页。",
+            )
+        )
+        output_lines.append(align_line(self._section_tabs_line(selected_section_index, box_width), screen_width, center=center))
         output_lines.append("")
 
         info_lines = [
             f"{style_text('Provider', Ansi.DIM)} : {style_text(self.context.target_provider, Ansi.BOLD, Ansi.CYAN)}"
-            f"  {style_text('Sessions', Ansi.DIM)} : {ellipsize_middle(self.context.active_sessions_dir, max(16, box_width - 40))}",
+            f"   {style_text('Sections', Ansi.DIM)} : {len(self.menu_sections)}"
+            f"   {style_text('Actions', Ansi.DIM)} : {len(self.menu_actions) - 1}",
+            f"{style_text('Sessions', Ansi.DIM)} : {ellipsize_middle(self.context.active_sessions_dir, max(16, box_width - 18))}",
             f"{style_text('Config', Ansi.DIM)} : {ellipsize_middle(self.context.config_path, max(16, box_width - 18))}",
         ]
-        for line in render_box(info_lines, width=box_width, border_codes=(Ansi.DIM, Ansi.BLUE)):
-            output_lines.append(line)
+        self._append_box(
+            output_lines,
+            info_lines,
+            box_width=box_width,
+            screen_width=screen_width,
+            center=center,
+            border_codes=(Ansi.DIM, Ansi.BLUE),
+        )
         output_lines.append("")
 
         section_nav_lines = [style_text("功能域导航", Ansi.BOLD)]
@@ -1242,30 +1286,56 @@ class ToolkitTuiApp:
                 section_nav_lines.append(style_text(f"{pointer} {header}", Ansi.BOLD, Ansi.UNDERLINE, section_color))
             else:
                 section_nav_lines.append("  " + style_text(header, Ansi.DIM, section_color))
-        for line in render_box(section_nav_lines, width=box_width, border_codes=(Ansi.DIM, Ansi.MAGENTA)):
-            output_lines.append(line)
+        self._append_box(
+            output_lines,
+            section_nav_lines,
+            box_width=box_width,
+            screen_width=screen_width,
+            center=center,
+            border_codes=(Ansi.DIM, Ansi.MAGENTA),
+        )
         output_lines.append("")
 
-        selected_actions = self._actions_for_section(selected_section.section_id)
         preview_labels = " / ".join(action.label for _, action in selected_actions[:3])
         if len(selected_actions) > 3:
             preview_labels += " / ..."
         summary_lines = [
             style_text(selected_section.title, Ansi.BOLD, self._section_color(selected_section)),
-            f"{style_text('动作数', Ansi.DIM)} : {len(selected_actions)}",
+            f"{style_text('定位', Ansi.DIM)} : {selected_section_index + 1}/{len(self.menu_sections)}"
+            f"   {style_text('动作数', Ansi.DIM)} : {len(selected_actions)}",
         ]
-        for note in self._section_notes(selected_section)[:1]:
+        for note in self._section_notes(selected_section):
             summary_lines.append(f"{style_text('说明', Ansi.DIM)} : {note}")
+        if selected_actions:
+            summary_lines.append(
+                f"{style_text('首个动作', Ansi.DIM)} : {self._action_badge(selected_actions[0][1])}  {selected_actions[0][1].label}"
+            )
         summary_lines.append(f"{style_text('包含动作', Ansi.DIM)} : {preview_labels}")
-        for line in render_box(summary_lines, width=box_width, border_codes=selected_section.border_codes):
-            output_lines.append(line)
+        self._append_box(
+            output_lines,
+            summary_lines,
+            box_width=box_width,
+            screen_width=screen_width,
+            center=center,
+            border_codes=selected_section.border_codes,
+        )
         output_lines.append("")
 
-        output_lines.append(style_text("Enter 进入功能页  |  ↑/↓ 选择功能域  |  h 帮助  |  q 退出", Ansi.DIM))
+        help_lines = [
+            "Enter 进入功能页  |  ↑/↓ 选择功能域  |  h 帮助  |  q 退出",
+        ]
         if os.name == "nt":
-            output_lines.append(style_text(f"提示：先运行 .\\install.ps1，再用 .\\{self.context.entry_command}.cmd 启动", Ansi.DIM))
+            help_lines.append(f"提示：先运行 .\\install.ps1，再用 .\\{self.context.entry_command}.cmd 启动")
         else:
-            output_lines.append(style_text(f"提示：先运行 ./install.sh，再用 ./{self.context.entry_command} 启动", Ansi.DIM))
+            help_lines.append(f"提示：先运行 ./install.sh，再用 ./{self.context.entry_command} 启动")
+        self._append_box(
+            output_lines,
+            [style_text(line, Ansi.DIM) for line in help_lines],
+            box_width=min(box_width, 84),
+            screen_width=screen_width,
+            center=center,
+            border_codes=(Ansi.DIM, Ansi.BLUE),
+        )
 
         hide_cursor = "\033[?25l"
         show_cursor = "\033[?25h"
@@ -1278,7 +1348,7 @@ class ToolkitTuiApp:
         sys.stdout.flush()
 
     def _render_section_page(self, section_index: int, action_offset: int) -> None:
-        box_width, center = self._screen_layout()
+        screen_width, box_width, center = self._screen_layout()
         screen_height = self._screen_height()
         pointer = glyphs().get("pointer", ">")
         output_lines: List[str] = []
@@ -1290,22 +1360,31 @@ class ToolkitTuiApp:
 
         action_offset = max(0, min(action_offset, len(section_actions) - 1))
         selected_index, selected_action = section_actions[action_offset]
-        for line in app_logo_lines(max_width=FIXED_THEME_LOGO_WIDTH):
-            output_lines.append(align_line(line, box_width, center=center))
-        output_lines.append(align_line(style_text("Codex 会话工具箱", Ansi.BOLD, Ansi.CYAN), box_width, center=center))
-        output_lines.append(align_line(style_text(f"{menu_section.title} / 功能页", Ansi.DIM), box_width, center=center))
-        output_lines.append(align_line(self._section_tabs_line(section_index, box_width), box_width, center=center))
+        output_lines.extend(
+            self._brand_header_lines(
+                f"{menu_section.title} / 功能页",
+                "聚焦一个动作，直接在当前终端里执行。",
+            )
+        )
+        output_lines.append(align_line(self._section_tabs_line(section_index, box_width), screen_width, center=center))
         output_lines.append("")
 
         info_lines = [
-            f"{style_text('当前动作', Ansi.DIM)} : {style_text(selected_action.label, Ansi.BOLD, self._action_color(selected_action))}",
-            f"{style_text('执行方式', Ansi.DIM)} : 直接在 TUI 中执行",
+            f"{style_text('当前动作', Ansi.DIM)} : {self._action_badge(selected_action)}  {style_text(selected_action.label, Ansi.BOLD, self._action_color(selected_action))}",
+            f"{style_text('执行方式', Ansi.DIM)} : 直接在 TUI 中执行"
+            f"   {style_text('位置', Ansi.DIM)} : {action_offset + 1}/{len(section_actions)}",
             f"{style_text('目标 Provider', Ansi.DIM)} : {style_text(self.context.target_provider, Ansi.BOLD, Ansi.CYAN)}",
         ]
-        for note in self._action_notes(selected_action)[:1]:
+        for note in self._action_notes(selected_action)[:2]:
             info_lines.append(f"{style_text('说明', Ansi.DIM)} : {note}")
-        for line in render_box(info_lines, width=box_width, border_codes=(Ansi.DIM, Ansi.BLUE)):
-            output_lines.append(line)
+        self._append_box(
+            output_lines,
+            info_lines,
+            box_width=box_width,
+            screen_width=screen_width,
+            center=center,
+            border_codes=(Ansi.DIM, Ansi.BLUE),
+        )
         output_lines.append("")
 
         section_lines = [style_text(menu_section.title, Ansi.BOLD)]
@@ -1320,16 +1399,35 @@ class ToolkitTuiApp:
             label = f"{hotkey} {menu_action.label}"
             if offset == action_offset:
                 prefix = style_text(pointer, Ansi.BOLD, Ansi.BRIGHT_CYAN) + " "
-                section_lines.append(prefix + style_text(label, Ansi.BOLD, Ansi.UNDERLINE, self._action_color(menu_action)))
+                section_lines.append(
+                    prefix + self._action_badge(menu_action) + " "
+                    + style_text(label, Ansi.BOLD, Ansi.UNDERLINE, self._action_color(menu_action))
+                )
             else:
-                section_lines.append("  " + style_text(hotkey, Ansi.DIM, self._action_color(menu_action)) + " " + menu_action.label)
+                section_lines.append(
+                    "  " + self._action_badge(menu_action) + " "
+                    + style_text(hotkey, Ansi.DIM, self._action_color(menu_action)) + " " + menu_action.label
+                )
         if end < len(section_actions):
             section_lines.append(style_text("... 下方还有更多动作 ...", Ansi.DIM))
-        for line in render_box(section_lines, width=box_width, border_codes=menu_section.border_codes):
-            output_lines.append(line)
+        self._append_box(
+            output_lines,
+            section_lines,
+            box_width=box_width,
+            screen_width=screen_width,
+            center=center,
+            border_codes=menu_section.border_codes,
+        )
         output_lines.append("")
 
-        output_lines.append(style_text("↑/↓ 选择动作  |  Enter 执行  |  ←/q 返回首页  |  →/PgDn 下一功能页  |  PgUp 上一功能页", Ansi.DIM))
+        self._append_box(
+            output_lines,
+            [style_text("↑/↓ 选择动作  |  Enter 执行  |  ←/q 返回首页  |  →/PgDn 下一功能页  |  PgUp 上一功能页", Ansi.DIM)],
+            box_width=min(box_width, 90),
+            screen_width=screen_width,
+            center=center,
+            border_codes=(Ansi.DIM, Ansi.BLUE),
+        )
 
         hide_cursor = "\033[?25l"
         show_cursor = "\033[?25h"
