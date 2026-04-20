@@ -242,10 +242,16 @@ def resolve_bundle_dir(bundle_root: Path, session_id: str) -> Path:
         except (OSError, ToolkitError):
             pass
 
+    # Compare case-insensitively so exports created on case-sensitive FS (Linux)
+    # can be imported on case-insensitive FS (Windows/macOS default) where the
+    # directory name's exact casing may be preserved but lookup expects match
+    # regardless of case. Session IDs are restricted to [A-Za-z0-9-] so a simple
+    # .lower() is safe and locale-independent.
+    session_key = session_id.lower()
     for bundle_dir in iter_bundle_directories_under_root(bundle_root):
         if bundle_dir in seen:
             continue
-        if bundle_dir.name == session_id:
+        if bundle_dir.name.lower() == session_key:
             candidates.append(bundle_dir)
             seen.add(bundle_dir)
             continue
@@ -254,7 +260,7 @@ def resolve_bundle_dir(bundle_root: Path, session_id: str) -> Path:
             manifest = load_manifest(manifest_file)
         except (OSError, ToolkitError):
             continue
-        if manifest.get("SESSION_ID", "") == session_id:
+        if manifest.get("SESSION_ID", "").lower() == session_key:
             candidates.append(bundle_dir)
             seen.add(bundle_dir)
             manifest_cache[bundle_dir] = manifest
@@ -275,6 +281,7 @@ def resolve_known_bundle_dir(
     export_group_filter: str = "",
 ) -> Path:
     session_id = validate_session_id(session_id)
+    session_key = session_id.lower()
     candidates = [
         summary.bundle_dir
         for summary in collect_known_bundle_summaries(
@@ -284,7 +291,7 @@ def resolve_known_bundle_dir(
             export_group_filter=export_group_filter,
             limit=None,
         )
-        if summary.session_id == session_id
+        if summary.session_id.lower() == session_key
     ]
     if not candidates:
         raise ToolkitError(f"Bundle not found for session id: {session_id}")

@@ -61,7 +61,11 @@ def prepare_session_for_import(
     session_kind: str,
     target_desktop_model_provider: str,
 ) -> None:
-    with source_session.open("r", encoding="utf-8") as in_fh, prepared_session.open("w", encoding="utf-8") as out_fh:
+    # newline="" preserves LF line endings across platforms — critical on Windows
+    # where text-mode write would translate \n → \r\n and break byte-comparison
+    # with the existing target_session in importing.py (read_bytes-based diff).
+    with source_session.open("r", encoding="utf-8", newline="") as in_fh, \
+            prepared_session.open("w", encoding="utf-8", newline="") as out_fh:
         for raw in in_fh:
             line = raw.rstrip("\n")
             if not line:

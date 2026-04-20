@@ -328,6 +328,21 @@ class SupportHelperTests(unittest.TestCase):
             self.assertEqual(removed, [])
             self.assertTrue((root / "only").exists())
 
+    def test_atomic_write_preserves_lf_line_endings_on_all_platforms(self) -> None:
+        # Ensures newline="" is wired: caller writes \n, file contains LF (0x0A)
+        # on disk, not CRLF. Protects Codex CLI compatibility on Windows where
+        # Python's text mode would otherwise translate \n → \r\n.
+        from codex_session_toolkit.support import atomic_write
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "file.jsonl"
+            with atomic_write(target) as fh:
+                fh.write("line1\n")
+                fh.write("line2\n")
+            raw = target.read_bytes()
+            self.assertEqual(raw, b"line1\nline2\n")
+            self.assertNotIn(b"\r\n", raw)
+
     def test_safe_copy2_copies_and_preserves_mtime(self) -> None:
         from codex_session_toolkit.support import safe_copy2
 
@@ -1128,6 +1143,46 @@ class CoreWorkflowTests(unittest.TestCase):
                 manifest["RELATIVE_PATH"],
                 f"sessions/2026/04/10/rollout-2026-04-10T10-00-00-{session_id}.jsonl",
             )
+
+    def test_resolve_bundle_by_session_id_is_case_insensitive(self) -> None:
+        # Bundle exported with mixed-case id 'ABc...' should resolve when looked
+        # up with lowercase 'abc...' (case-insensitive FS on Windows/macOS).
+        from codex_session_toolkit.stores.bundles import resolve_known_bundle_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir) / "workspace"
+            workspace.mkdir()
+            mixed_id = "ABcDEFab-abab-4aba-8aba-ABCDEFabcdef"
+            bundle_dir = (
+                workspace
+                / "codex_sessions"
+                / "MixedHost"
+                / "single"
+                / "20260414-120000-000001"
+                / mixed_id
+            )
+            bundle_dir.mkdir(parents=True, exist_ok=True)
+            write_bundle_manifest(
+                bundle_dir,
+                session_id=mixed_id,
+                export_machine="MixedHost",
+                export_machine_key="MixedHost",
+                session_cwd=str(workspace / "proj"),
+            )
+            (bundle_dir / "history.jsonl").write_text("", encoding="utf-8")
+            rel_session = bundle_dir / "codex" / "sessions" / "2026" / "04" / "10" \
+                / f"rollout-2026-04-10T10-00-00-{mixed_id}.jsonl"
+            rel_session.parent.mkdir(parents=True, exist_ok=True)
+            rel_session.write_text(
+                json.dumps({"type": "session_meta", "payload": {"id": mixed_id}}) + "\n",
+                encoding="utf-8",
+            )
+
+            with pushd(workspace):
+                paths = CodexPaths(home=Path(tmpdir) / "home", cwd=workspace)
+                lower = mixed_id.lower()
+                resolved = resolve_known_bundle_dir(paths, lower)
+            self.assertEqual(resolved, bundle_dir)
 
     def test_import_and_validate_accept_windows_manifest_relative_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

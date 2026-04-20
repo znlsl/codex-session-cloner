@@ -307,11 +307,32 @@ class ToolkitTuiApp:
 
     def _print_branded_header(self, title: str, subtitle: str = "") -> int:
         clear_screen()
+        # Hide cursor during modal redraw to eliminate the visible-cursor jitter
+        # that reads as flicker/ghosting while many print() calls fill the frame.
+        # Counterpart show-cursor is emitted by _await_input before each stdin
+        # prompt so the user still sees the insertion point while typing.
+        sys.stdout.write("\033[?25l")
+        sys.stdout.flush()
         _, box_width, _ = self._screen_layout()
         for line in self._brand_header_lines(title, subtitle):
             print(line)
         print("")
         return box_width
+
+    def _await_input(self, prompt: str = "") -> str:
+        """Show cursor, read a line from stdin, then re-hide the cursor.
+
+        Used in every modal fallback path that needs typed input (command
+        prompts, DELETE confirmation, etc.) so that the cursor is visible
+        only while the user is actively typing.
+        """
+        sys.stdout.write("\033[?25h")
+        sys.stdout.flush()
+        try:
+            return input(prompt)
+        finally:
+            sys.stdout.write("\033[?25l")
+            sys.stdout.flush()
 
     def _run_toolkit(self, cli_args: List[str]) -> int:
         try:
@@ -514,7 +535,7 @@ class ToolkitTuiApp:
         print("")
 
         suffix = f"（默认：{default}）" if default else ""
-        raw = input(style_text(f"{prompt_label}{suffix}：", Ansi.BOLD, Ansi.CYAN)).strip()
+        raw = self._await_input(style_text(f"{prompt_label}{suffix}：", Ansi.BOLD, Ansi.CYAN)).strip()
         if not raw:
             if default:
                 return default
@@ -556,7 +577,7 @@ class ToolkitTuiApp:
         for line in render_box(lines, width=box_width, border_codes=border_codes or (Ansi.DIM, Ansi.BLUE)):
             print(line)
         print("")
-        input(style_text("按 Enter 返回...", Ansi.DIM))
+        self._await_input(style_text("按 Enter 返回...", Ansi.DIM))
 
     def _session_action_center(self, summary: SessionSummary) -> None:
         pointer = glyphs().get("pointer", ">")
@@ -586,7 +607,7 @@ class ToolkitTuiApp:
 
             key = read_key()
             if key is None:
-                raw = input("命令 [Enter/e/q]：").strip()
+                raw = self._await_input("命令 [Enter/e/q]：").strip()
                 key = raw if raw else "ENTER"
 
             if key in ("UP", "k", "K"):
@@ -638,7 +659,7 @@ class ToolkitTuiApp:
 
             key = read_key()
             if key is None:
-                raw = input("命令 [Enter/i/v/q]：").strip()
+                raw = self._await_input("命令 [Enter/i/v/q]：").strip()
                 key = raw if raw else "ENTER"
 
             if key in ("UP", "k", "K"):
@@ -738,7 +759,7 @@ class ToolkitTuiApp:
             key = read_key()
             if key is None:
                 raw_prompt = "命令 [Enter/\\/e/d/q]：" if mode == "view" else "命令 [Enter/\\/d/q]："
-                raw = input(raw_prompt).strip()
+                raw = self._await_input(raw_prompt).strip()
                 key = raw if raw else "ENTER"
 
             if key in ("UP", "k", "K"):
@@ -868,7 +889,7 @@ class ToolkitTuiApp:
                     if mode == "view"
                     else "命令 [Enter/\\/s/m/l/d/q]："
                 )
-                raw = input(raw_prompt).strip()
+                raw = self._await_input(raw_prompt).strip()
                 key = raw if raw else "ENTER"
 
             if key in ("UP", "k", "K"):
@@ -1000,7 +1021,7 @@ class ToolkitTuiApp:
 
             key = read_key()
             if key is None:
-                raw = input("命令 [Enter/d/q]：").strip()
+                raw = self._await_input("命令 [Enter/d/q]：").strip()
                 key = raw if raw else "ENTER"
 
             if key in ("UP", "k", "K"):
@@ -1075,7 +1096,7 @@ class ToolkitTuiApp:
 
                 key = read_key()
                 if key is None:
-                    raw = input("命令 [Enter/d/q]：").strip()
+                    raw = self._await_input("命令 [Enter/d/q]：").strip()
                     key = raw if raw else "ENTER"
 
                 if key in ("UP", "k", "K"):
@@ -1245,7 +1266,7 @@ class ToolkitTuiApp:
         for line in render_box(lines, width=box_width, border_codes=(Ansi.DIM,)):
             print(line)
         print("")
-        input("按 Enter 返回菜单...")
+        self._await_input("按 Enter 返回菜单...")
 
     def _render_home(self, selected_section_index: int) -> None:
         screen_width, box_width, center = self._screen_layout()
@@ -1524,7 +1545,7 @@ class ToolkitTuiApp:
         result = runner()
         if result != 0:
             print(style_text(f"\n操作返回状态码：{result}", Ansi.BOLD, Ansi.YELLOW))
-        input(style_text("\n按 Enter 返回菜单...", Ansi.DIM))
+        self._await_input(style_text("\n按 Enter 返回菜单...", Ansi.DIM))
 
     def _confirm_dangerous_action(self, cli_args: Sequence[str]) -> bool:
         box_width = self._print_branded_header("危险操作确认", "该操作会删除文件，且无法恢复。")
@@ -1539,7 +1560,7 @@ class ToolkitTuiApp:
         for line in render_box(info_lines, width=box_width, border_codes=(Ansi.DIM, Ansi.RED)):
             print(line)
         print("")
-        return input(style_text("请输入 DELETE 确认执行：", Ansi.BOLD, Ansi.RED)).strip() == "DELETE"
+        return self._await_input(style_text("请输入 DELETE 确认执行：", Ansi.BOLD, Ansi.RED)).strip() == "DELETE"
 
     def run(self) -> int:
         selected_section = 0

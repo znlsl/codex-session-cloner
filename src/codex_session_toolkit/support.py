@@ -41,7 +41,12 @@ def atomic_write(
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
-    fh = os.fdopen(tmp_fd, "w", encoding=encoding)
+    # newline="" disables Python's universal-newlines translation on Windows.
+    # Codex CLI (Rust) writes rollout / history / session_index JSONL with LF-only;
+    # without this, text-mode write would emit CRLF on Windows and corrupt byte-
+    # level comparisons (importing.py compares read_bytes()) and mix line endings
+    # for tools that later re-open the file on Windows.
+    fh = os.fdopen(tmp_fd, "w", encoding=encoding, newline="")
     try:
         yield fh
         fh.close()
