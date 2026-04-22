@@ -164,13 +164,28 @@ class CleanerTuiApp:
     def _enter_terminal(self) -> None:
         self._last_frame = ""
         self._last_lines = []
-        sys.stdout.write(self.screen_mode.enter_sequence)
+        # When invoked from the ``aik`` hub the parent already owns the alt
+        # screen + cursor-hide state; toggling them again would briefly
+        # surface the outer shell as a "flash" between hub → tool. The
+        # ``AIK_HUB_ACTIVE`` flag lets us share one continuous alt-screen
+        # surface across hub → tool → hub transitions.
+        import os
+        if os.environ.get("AIK_HUB_ACTIVE"):
+            sys.stdout.write("\033[2J\033[H\033[?25l")
+        else:
+            sys.stdout.write(self.screen_mode.enter_sequence)
         sys.stdout.flush()
 
     def _leave_terminal(self) -> None:
         self._last_frame = ""
         self._last_lines = []
-        sys.stdout.write(self.screen_mode.exit_sequence)
+        import os
+        if os.environ.get("AIK_HUB_ACTIVE"):
+            # Hand control back to the hub on the same alt-screen surface;
+            # just clear so the hub redraws on a clean canvas.
+            sys.stdout.write("\033[2J\033[H")
+        else:
+            sys.stdout.write(self.screen_mode.exit_sequence)
         sys.stdout.flush()
 
     def _toggle_index(self, index: int, plan: Sequence[PlanItem]) -> None:

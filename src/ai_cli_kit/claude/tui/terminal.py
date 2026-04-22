@@ -72,14 +72,25 @@ from ...core.tui.wordmark import (  # noqa: F401
 
 
 def tui_width(cols: Optional[int] = None, *, fallback: int = 90) -> int:
-    """Return the effective inner width Claude menus should target."""
+    """Return the effective inner width Claude menus should target.
+
+    Reserves a visible left/right margin (``cols - 8`` on wide shells,
+    ``cols - 4`` on medium, ``cols - 2`` on narrow) so boxes are noticeably
+    narrower than the terminal — matches the codex sub-tool's behaviour
+    so both sub-tools centre with the same visible padding.
+    """
     cols = term_width(fallback=fallback) if cols is None else int(cols)
     if cols <= 0:
         cols = fallback
 
-    width = cols
-    if cols >= 24:
-        width = max(24, cols - 2)
+    if cols >= 80:
+        width = cols - 8
+    elif cols >= 40:
+        width = cols - 4
+    elif cols >= 24:
+        width = cols - 2
+    else:
+        width = cols
 
     cap = env_first("CCC_TUI_MAX_WIDTH", "CST_TUI_MAX_WIDTH", "CSC_TUI_MAX_WIDTH")
     if cap:

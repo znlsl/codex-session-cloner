@@ -183,18 +183,21 @@ def _run_hub() -> int:
 
 
 def _enter_tool(tool_token: str) -> None:
-    """Suspend hub UI, run the tool, then restore hub UI on return.
+    """Hand control to the sub-tool, sharing the hub's alt-screen surface.
 
-    Each tool owns its own alt-screen + cursor lifecycle, so we hand the
-    terminal back to a "clean main screen + cursor visible" state before
-    invoking it, then re-enter alt screen + hide cursor for the hub.
+    Setting ``AIK_HUB_ACTIVE=1`` tells codex/claude TUIs to skip their own
+    ``\\033[?1049h`` / ``\\033[?1049l`` toggles — they'd otherwise flash the
+    outer shell between transitions. Hub stays in alt screen the whole time;
+    sub-tool just clears + renders, then clears on exit so the hub can redraw.
     """
-    sys.stdout.write("\033[?25h\033[?1049l")
+    sys.stdout.write("\033[2J\033[H\033[?25h")  # clear + show cursor for sub-tool prompts
     sys.stdout.flush()
+    os.environ["AIK_HUB_ACTIVE"] = "1"
     try:
         _dispatch_to_tool(tool_token, [])
     finally:
-        sys.stdout.write("\033[?1049h\033[?25l")
+        os.environ.pop("AIK_HUB_ACTIVE", None)
+        sys.stdout.write("\033[?25l")  # rehide cursor for hub
         sys.stdout.flush()
 
 

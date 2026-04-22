@@ -163,6 +163,39 @@ class HubLogoTests(unittest.TestCase):
         # don't have to guess.
         self.assertIn("Esc", plain)
 
+    def test_enter_tool_sets_and_clears_aik_hub_active_env(self) -> None:
+        """``_enter_tool`` must mark AIK_HUB_ACTIVE while sub-tool runs.
+
+        Regression guard: this env flag tells codex / claude TUIs to skip
+        their own ``\\033[?1049h`` / ``\\033[?1049l`` sequences so the
+        hub-to-tool transition doesn't flash the outer shell. Forgetting
+        to set it brings the flash back; forgetting to pop it leaks the
+        flag into unrelated processes (e.g. when the tool spawns a
+        sub-process).
+        """
+        if str(SRC_DIR) not in sys.path:
+            sys.path.insert(0, str(SRC_DIR))
+
+        from ai_cli_kit import cli as cli_mod
+
+        # Spy on _dispatch_to_tool: capture env state, then return cleanly.
+        captured = {}
+
+        def fake_dispatch(token, passthrough):
+            captured["env_during"] = os.environ.get("AIK_HUB_ACTIVE")
+            return 0
+
+        original_dispatch = cli_mod._dispatch_to_tool
+        cli_mod._dispatch_to_tool = fake_dispatch
+        try:
+            self.assertNotIn("AIK_HUB_ACTIVE", os.environ)
+            cli_mod._enter_tool("codex")
+        finally:
+            cli_mod._dispatch_to_tool = original_dispatch
+
+        self.assertEqual(captured.get("env_during"), "1", "AIK_HUB_ACTIVE not set during sub-tool")
+        self.assertNotIn("AIK_HUB_ACTIVE", os.environ, "AIK_HUB_ACTIVE leaked after sub-tool exit")
+
     def test_hub_cards_are_horizontally_centred(self) -> None:
         """Cards must have non-trivial left padding on a wide terminal.
 

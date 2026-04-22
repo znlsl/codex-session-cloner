@@ -1578,8 +1578,18 @@ class ToolkitTuiApp:
             for menu_section in self.menu_sections
         }
         last_size = (term_width(), term_height())
-        sys.stdout.write("\033[?1049h\033[H")
-        sys.stdout.flush()
+        # When invoked from the ``aik`` hub the parent already owns the alt
+        # screen + cursor-hide state. Toggling them again here would briefly
+        # exit alt screen on each transition, surfacing the outer shell as a
+        # visible "flash" between the hub and this TUI. The env flag lets us
+        # share one continuous alt screen across hub → tool → hub.
+        hub_active = bool(os.environ.get("AIK_HUB_ACTIVE"))
+        if not hub_active:
+            sys.stdout.write("\033[?1049h\033[H")
+            sys.stdout.flush()
+        else:
+            sys.stdout.write("\033[H")
+            sys.stdout.flush()
 
         # SIGWINCH (Unix only) wakes the blocking read so resize redraws happen
         # immediately rather than waiting for the next keystroke. On Windows
@@ -1715,7 +1725,13 @@ class ToolkitTuiApp:
                 if state_before != state_after:
                     needs_redraw = True
         finally:
-            sys.stdout.write("\033[?25h\033[?1049l")
+            # Same hub-share rule: only tear down alt screen when we owned it.
+            # When invoked from the hub, we just clear and let the hub redraw
+            # on top of the same alt-screen surface.
+            if not hub_active:
+                sys.stdout.write("\033[?25h\033[?1049l")
+            else:
+                sys.stdout.write("\033[2J\033[H")
             sys.stdout.flush()
             try:
                 if prev_handler is not None and getattr(signal, "SIGWINCH", None) is not None:

@@ -78,16 +78,28 @@ from ...core.tui.wordmark import (  # noqa: F401,E402
 def tui_width(cols: Optional[int] = None, *, fallback: int = 90) -> int:
     """Return the effective inner width Codex menus should target.
 
-    Honors ``CST_TUI_MAX_WIDTH`` / ``CSC_TUI_MAX_WIDTH`` so a user can cap the
-    UI at a comfortable reading width on ultrawide screens.
+    Reserves a visible left/right margin (``cols - 8`` instead of ``cols - 2``)
+    so boxes are noticeably narrower than the terminal — otherwise a 96-col
+    box on a 96-col terminal centres to zero padding and reads as "stuck
+    left". Falls back to a smaller margin (``cols - 4`` / ``cols - 2``) on
+    progressively narrower shells so content density doesn't suffer there.
+
+    Honors ``CST_TUI_MAX_WIDTH`` / ``CSC_TUI_MAX_WIDTH`` so a user can cap
+    the UI at a comfortable reading width on ultrawide screens.
     """
     cols = term_width(fallback=fallback) if cols is None else int(cols)
     if cols <= 0:
         cols = fallback
 
-    width = cols
-    if cols >= 24:
-        width = max(24, cols - 2)
+    if cols >= 80:
+        # Reserve at least 4 cols of visible margin on each side.
+        width = cols - 8
+    elif cols >= 40:
+        width = cols - 4
+    elif cols >= 24:
+        width = cols - 2
+    else:
+        width = cols
 
     cap = env_first("CST_TUI_MAX_WIDTH", "CSC_TUI_MAX_WIDTH")
     if cap:
