@@ -24,6 +24,10 @@ def _module_env() -> dict:
     env = os.environ.copy()
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(SRC_DIR) if not existing else f"{SRC_DIR}{os.pathsep}{existing}"
+    # Force UTF-8 — codex / claude / aik CLIs print Chinese help text, which
+    # crashes with UnicodeEncodeError on CI runners whose locale is C/POSIX.
+    env.setdefault("PYTHONUTF8", "1")
+    env.setdefault("PYTHONIOENCODING", "utf-8")
     return env
 
 

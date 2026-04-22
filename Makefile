@@ -4,6 +4,15 @@ PACKAGE_MODULE := ai_cli_kit
 CODEX_MODULE := ai_cli_kit.codex
 CLAUDE_MODULE := ai_cli_kit.claude
 
+# Force UTF-8 for every Python invocation Make spawns. Without this, CI runners
+# whose default locale is C/POSIX (or any non-UTF-8) will crash with
+# UnicodeEncodeError the first time argparse prints help text containing
+# Chinese (which our codex / claude / aik CLIs all do). The launchers set the
+# same vars themselves; this line covers the ``make smoke`` / ``make test`` /
+# ``make run`` paths that bypass them.
+export PYTHONUTF8 := 1
+export PYTHONIOENCODING := utf-8
+
 .PHONY: help run run-codex run-claude install bootstrap bootstrap-editable release test compile check version smoke
 
 help:

@@ -394,7 +394,13 @@ class CleanupWorkflowTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("ai_cli_kit.claude.history_remap.subprocess.run") as mocked_run:
+            # ``_run_claude_refresh`` now resolves the binary via
+            # ``shutil.which("claude")`` first (so Windows finds claude.cmd /
+            # claude.exe wrappers without ``shell=True``). CI runners don't
+            # have a real claude binary on PATH, so we mock both ``which``
+            # and ``subprocess.run`` to keep this test environment-agnostic.
+            with patch("shutil.which", return_value="/fake/path/to/claude"), \
+                    patch("ai_cli_kit.claude.history_remap.subprocess.run") as mocked_run:
                 mocked_run.return_value.returncode = 0
                 mocked_run.return_value.stdout = "ok"
                 mocked_run.return_value.stderr = ""
