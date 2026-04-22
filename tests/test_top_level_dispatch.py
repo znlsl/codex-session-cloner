@@ -254,6 +254,63 @@ class CodexSubflowCenteringTests(unittest.TestCase):
     against the centred header above.
     """
 
+    def test_await_input_prompt_with_ansi_wrapped_newline_is_centred(self) -> None:
+        """Regression: ``style_text("\\n按 Enter ...", Ansi.DIM)`` wraps the
+        leading newline INSIDE ANSI codes. A naive ``startswith("\\n")``
+        misses it and the padded-then-newlined prompt drops to column 0.
+        ``_await_input`` must look through ANSI codes when peeling leading
+        newlines so the visible prompt actually lands at the centred column.
+        """
+        if str(SRC_DIR) not in sys.path:
+            sys.path.insert(0, str(SRC_DIR))
+        import builtins
+        import io
+        import re
+
+        from ai_cli_kit.codex.tui import app as codex_app
+        from ai_cli_kit.codex.tui.app import ToolkitAppContext, ToolkitTuiApp
+        from ai_cli_kit.codex.tui.terminal import Ansi, style_text
+
+        original_term_width = codex_app.term_width
+        codex_app.term_width = lambda fallback=90: 100
+
+        captured_prompt = []
+
+        def fake_input(prompt: str = "") -> str:
+            captured_prompt.append(prompt)
+            return ""
+
+        original_input = builtins.input
+        builtins.input = fake_input
+
+        ctx = ToolkitAppContext(
+            target_provider="demo",
+            active_sessions_dir="/tmp",
+            config_path="/tmp/x.toml",
+        )
+        app = ToolkitTuiApp(ctx)
+
+        buf = io.StringIO()
+        original_stdout = sys.stdout
+        sys.stdout = buf
+        try:
+            app._await_input(style_text("\n按 Enter 返回菜单...", Ansi.DIM))
+        finally:
+            sys.stdout = original_stdout
+            builtins.input = original_input
+            codex_app.term_width = original_term_width
+
+        plain_prompt = re.sub(r"\x1b\[[0-9;]*m", "", captured_prompt[0])
+        indent = len(plain_prompt) - len(plain_prompt.lstrip(" "))
+        self.assertGreater(
+            indent, 8,
+            f"prompt not centred — got indent={indent}, prompt={plain_prompt!r}",
+        )
+        # The leading \n must be emitted to stdout BEFORE the prompt so it
+        # creates the blank-line spacer rather than landing inside the indent.
+        plain_stdout = re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
+        self.assertIn("\n", plain_stdout, "leading newline missing from stdout")
+
     def test_run_centered_block_pads_uniformly(self) -> None:
         """``_run_centered`` must indent all runner-output lines by the SAME
         amount so tabular columns (validate-bundles, list-sessions, …) stay

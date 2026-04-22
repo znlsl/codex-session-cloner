@@ -335,20 +335,44 @@ class ToolkitTuiApp:
         Centres the visible part of the prompt so it lines up with the
         rest of the TUI. Leading newlines (commonly used to add a blank
         line before the prompt) are emitted *before* the centring padding;
-        otherwise they would land in the middle of the indent and offset
-        only the part after the newline.
+        otherwise they would land in the middle of the indent and push
+        only the part after the newline back to column 0.
+
+        The leading-newline detection looks through ANSI escape codes too —
+        ``style_text("\\n按 Enter 返回菜单...", Ansi.DIM)`` wraps the ``\\n``
+        inside the dim/reset codes, so a naive ``startswith("\\n")`` check
+        misses it and the centring breaks. We strip both ``\\n`` and ANSI
+        sequences from the leading prefix, count the newlines, and rebuild
+        the visible prompt with the ANSI codes preserved inline.
         """
+        import re
+
         sys.stdout.write("\033[?25h")
         sys.stdout.flush()
         try:
             screen_width, _, center = self._screen_layout()
-            display_prompt = prompt
-            leading_newlines = ""
-            while display_prompt.startswith("\n"):
-                leading_newlines += "\n"
-                display_prompt = display_prompt[1:]
+            # Greedily peel any combination of ``\n`` + ANSI escapes from the
+            # start of the prompt. The result: ``leading_newlines`` is just the
+            # raw \n count; ``display_prompt`` keeps the original ANSI codes
+            # attached to the first visible character so styling is preserved.
+            ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+            leading_newlines = 0
+            cursor = 0
+            ansi_kept = []
+            while cursor < len(prompt):
+                if prompt[cursor] == "\n":
+                    leading_newlines += 1
+                    cursor += 1
+                    continue
+                m = ansi_re.match(prompt, cursor)
+                if m:
+                    ansi_kept.append(m.group(0))
+                    cursor = m.end()
+                    continue
+                break
+            display_prompt = "".join(ansi_kept) + prompt[cursor:]
             if leading_newlines:
-                sys.stdout.write(leading_newlines)
+                sys.stdout.write("\n" * leading_newlines)
             return input(align_line(display_prompt, screen_width, center=center))
         finally:
             sys.stdout.write("\033[?25l")
