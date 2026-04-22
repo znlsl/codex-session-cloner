@@ -1,4 +1,6 @@
-"""Module execution entrypoint for `python -m codex_session_toolkit`."""
+"""``python -m ai_cli_kit`` entry point."""
+
+from __future__ import annotations
 
 from .cli import main
 

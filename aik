@@ -1,24 +1,24 @@
 #!/usr/bin/env sh
+# AI CLI Kit launcher (POSIX)
+#
+# Forwards ``aik <tool> [args…]`` to the ``ai_cli_kit`` package, choosing
+# between an installed virtualenv binary and source-mode execution the same
+# way the per-tool launchers do, and seeding the same UTF-8 env contract
+# documented in ``ai_cli_kit.core.launcher_env``.
 set -eu
 
-# Force UTF-8 so Chinese filenames/paths/TUI output stay intact under POSIX
-# locales like C/POSIX where Python would otherwise default to ASCII stdio.
-# (No-op on systems whose locale is already UTF-8 — env vars are honoured.)
 : "${PYTHONUTF8:=1}"
 : "${PYTHONIOENCODING:=utf-8}"
 export PYTHONUTF8 PYTHONIOENCODING
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-# After PR 3 the codex CLI lives under ai_cli_kit.codex; the package directory
-# probe + ``python -m`` target both reflect that. The console script name and
-# user-facing command stay ``codex-session-toolkit`` for backwards compatibility.
 PACKAGE_DIR_NAME="ai_cli_kit"
-PACKAGE_MODULE="ai_cli_kit.codex"
+PACKAGE_MODULE="ai_cli_kit"
 VENV_DIR="${VENV_DIR:-$SCRIPT_DIR/.venv}"
-VENV_COMMAND="$VENV_DIR/bin/codex-session-toolkit"
+VENV_COMMAND="$VENV_DIR/bin/aik"
 SRC_DIR="$SCRIPT_DIR/src"
-PACKAGE_DIR="$SRC_DIR/$PACKAGE_DIR_NAME/codex"
-LAUNCH_MODE="${CST_LAUNCH_MODE:-${CSC_LAUNCH_MODE:-auto}}"
+PACKAGE_DIR="$SRC_DIR/$PACKAGE_DIR_NAME"
+LAUNCH_MODE="${AIK_LAUNCH_MODE:-${CST_LAUNCH_MODE:-${CSC_LAUNCH_MODE:-auto}}}"
 IS_GIT_WORKTREE=0
 
 if [ -d "$SCRIPT_DIR/.git" ] && [ -d "$PACKAGE_DIR" ]; then
@@ -27,17 +27,11 @@ fi
 
 run_venv() {
   echo "============================================="
-  echo " Codex Session Toolkit - Launcher (Local Venv)"
+  echo " AI CLI Kit - Launcher (Local Venv)"
   echo "============================================="
   echo ">> $VENV_COMMAND $*"
   exec "$VENV_COMMAND" "$@"
 }
-
-if [ ! -d "$PACKAGE_DIR" ] && [ "$LAUNCH_MODE" = "source" ]; then
-  echo "Error: cannot find package source at $PACKAGE_DIR" >&2
-  echo "Tip: run ./install.sh first, or keep the src/ tree intact." >&2
-  exit 1
-fi
 
 if [ "$LAUNCH_MODE" = "installed" ] && [ -x "$VENV_COMMAND" ]; then
   run_venv "$@"
@@ -72,7 +66,7 @@ if [ -z "$PYTHON_BIN" ]; then
 fi
 
 echo "============================================="
-echo " Codex Session Toolkit - Launcher (Source Mode)"
+echo " AI CLI Kit - Launcher (Source Mode)"
 echo "============================================="
 echo ">> $PYTHON_BIN -m $PACKAGE_MODULE $*"
 

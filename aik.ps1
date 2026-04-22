@@ -1,4 +1,4 @@
-# Codex Session Toolkit launcher (Windows)
+# AI CLI Kit launcher (Windows)
 
 param(
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -6,27 +6,24 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-# After PR 3 the codex CLI lives at ai_cli_kit.codex; ``packageDir`` probes the
-# subpackage directory and ``packageModule`` is what ``python -m`` runs. The
-# console-script name and console-visible labels stay ``codex-session-toolkit``
-# for backwards compatibility — same wrappers, new home.
 $packageDirName = "ai_cli_kit"
-$packageModule = "ai_cli_kit.codex"
+$packageModule = "ai_cli_kit"
 
-# Force UTF-8 so Chinese filenames / paths / TUI output are not mangled by
-# legacy Windows codepages (cp936/cp1252). Both vars are needed: PYTHONUTF8
-# enables UTF-8 mode for the interpreter, PYTHONIOENCODING covers stdio
-# wrappers that bypass the UTF-8 mode flag.
+# Force UTF-8 — see ai_cli_kit.core.launcher_env for the rationale.
 if (-not $env:PYTHONUTF8) { $env:PYTHONUTF8 = "1" }
 if (-not $env:PYTHONIOENCODING) { $env:PYTHONIOENCODING = "utf-8" }
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $venvDir = if ($env:VENV_DIR) { $env:VENV_DIR } else { Join-Path $scriptDir ".venv" }
 $venvScriptsDir = Join-Path $venvDir "Scripts"
-$installedExe = Join-Path $venvScriptsDir "codex-session-toolkit.exe"
-$installedCmd = Join-Path $venvScriptsDir "codex-session-toolkit.cmd"
+$installedExe = Join-Path $venvScriptsDir "aik.exe"
+$installedCmd = Join-Path $venvScriptsDir "aik.cmd"
 $srcDir = Join-Path $scriptDir "src"
-$packageDir = Join-Path (Join-Path $srcDir $packageDirName) "codex"
-$launchMode = if ($env:CST_LAUNCH_MODE) { $env:CST_LAUNCH_MODE } elseif ($env:CSC_LAUNCH_MODE) { $env:CSC_LAUNCH_MODE } else { "auto" }
+$packageDir = Join-Path $srcDir $packageDirName
+$launchMode = if ($env:AIK_LAUNCH_MODE) { $env:AIK_LAUNCH_MODE } `
+    elseif ($env:CST_LAUNCH_MODE) { $env:CST_LAUNCH_MODE } `
+    elseif ($env:CSC_LAUNCH_MODE) { $env:CSC_LAUNCH_MODE } `
+    else { "auto" }
 $isGitWorktree = (Test-Path (Join-Path $scriptDir ".git")) -and (Test-Path $packageDir)
 
 function Resolve-PythonCommand {
@@ -39,16 +36,15 @@ function Resolve-PythonCommand {
 function Invoke-InstalledLauncher {
     if (Test-Path $installedExe) {
         Write-Host "=============================================" -ForegroundColor Cyan
-        Write-Host " Codex Session Toolkit - Launcher (Local Venv)" -ForegroundColor Cyan
+        Write-Host " AI CLI Kit - Launcher (Local Venv)" -ForegroundColor Cyan
         Write-Host "=============================================" -ForegroundColor Cyan
         Write-Host ">> $installedExe $($PassthroughArgs -join ' ')" -ForegroundColor DarkGray
         & $installedExe @PassthroughArgs
         exit $LASTEXITCODE
     }
-
     if (Test-Path $installedCmd) {
         Write-Host "=============================================" -ForegroundColor Cyan
-        Write-Host " Codex Session Toolkit - Launcher (Local Venv)" -ForegroundColor Cyan
+        Write-Host " AI CLI Kit - Launcher (Local Venv)" -ForegroundColor Cyan
         Write-Host "=============================================" -ForegroundColor Cyan
         Write-Host ">> $installedCmd $($PassthroughArgs -join ' ')" -ForegroundColor DarkGray
         & $installedCmd @PassthroughArgs
@@ -58,13 +54,8 @@ function Invoke-InstalledLauncher {
 
 Set-Location $scriptDir
 
-if ($launchMode -eq "installed") {
-    Invoke-InstalledLauncher
-}
-
-if ($launchMode -eq "auto" -and -not $isGitWorktree) {
-    Invoke-InstalledLauncher
-}
+if ($launchMode -eq "installed") { Invoke-InstalledLauncher }
+if ($launchMode -eq "auto" -and -not $isGitWorktree) { Invoke-InstalledLauncher }
 
 if (-not (Test-Path $packageDir)) {
     Invoke-InstalledLauncher
@@ -87,7 +78,7 @@ if ($pyCmd.Length -gt 1) {
 }
 
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host " Codex Session Toolkit - Launcher (Source Mode)" -ForegroundColor Cyan
+Write-Host " AI CLI Kit - Launcher (Source Mode)" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host ">> $pythonExe $($pythonPreArgs -join ' ') -m $packageModule $($PassthroughArgs -join ' ')" -ForegroundColor DarkGray
 
