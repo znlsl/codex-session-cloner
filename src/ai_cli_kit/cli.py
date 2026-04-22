@@ -24,20 +24,22 @@ from .core.tui.terminal import (
     Ansi,
     clear_screen,
     configure_text_streams,
+    display_width,
     glyphs,
     is_interactive_terminal,
     read_key,
     render_box,
     style_text,
+    term_width,
 )
 
 
 # Tool registry — pairs the public token (``codex`` / ``claude``) with the
-# entry point function and a short label for the hub. Adding a new sibling
-# tool means appending one tuple here plus its launcher script.
+# entry point function and the hub display copy. Adding a new sibling tool
+# means appending one tuple here plus its launcher script.
 _TOOLS = (
-    ("codex", "Codex CLI Session Toolkit", "ai_cli_kit.codex.cli", "克隆 / 导出 / 导入 / 修复 Codex 会话"),
-    ("claude", "Claude Code Local Cleanup", "ai_cli_kit.claude.cli", "清理本地标识 / 遥测 / 历史，安全备份"),
+    ("codex", "Codex Session Toolkit", "ai_cli_kit.codex.cli", "克隆 / 导出 / 导入 / 修复 Codex 会话"),
+    ("claude", "CC Clean (Claude Code)", "ai_cli_kit.claude.cli", "清理本地标识 / 遥测 / 历史，安全备份"),
 )
 
 
@@ -127,13 +129,22 @@ def _print_top_help(stream=None) -> None:
 
 
 def _run_hub() -> int:
-    """Minimal picker: arrow keys + Enter to launch a tool's own TUI."""
+    """Two-card picker: arrow keys / number / Enter to launch a tool's own TUI.
+
+    Designed as the "front door" — minimal text, two big highlighted cards,
+    one-key entry. The user should immediately see two clearly-labelled
+    options and not need to read documentation to pick one.
+    """
     selected = 0
     sys.stdout.write("\033[?1049h\033[?25l")  # alt screen + hide cursor
     sys.stdout.flush()
+    last_signature: Optional[tuple] = None
     try:
         while True:
-            _render_hub(selected)
+            signature = (selected, term_width())
+            if signature != last_signature:
+                _render_hub(selected)
+                last_signature = signature
             key = read_key(timeout_ms=None if os.name != "nt" else 500)
             if key is None:
                 continue
@@ -144,14 +155,9 @@ def _run_hub() -> int:
                 selected = (selected + 1) % len(_TOOLS)
                 continue
             if key == "ENTER":
-                # Hand control over to the tool. Restore terminal so the
-                # tool's own TUI starts from a known state.
                 sys.stdout.write("\033[?25h\033[?1049l")
                 sys.stdout.flush()
-                tool_token = _TOOLS[selected][0]
-                # Re-enter the alt screen via the tool's own setup; we just
-                # exited so it can do that cleanly.
-                return _dispatch_to_tool(tool_token, [])
+                return _dispatch_to_tool(_TOOLS[selected][0], [])
             if isinstance(key, str) and key.isdigit():
                 idx = int(key) - 1
                 if 0 <= idx < len(_TOOLS):
@@ -169,41 +175,68 @@ def _run_hub() -> int:
 
 def _render_hub(selected: int) -> None:
     pointer = glyphs().get("pointer", ">")
-    title_lines = [
-        style_text(f"{APP_DISPLAY_NAME} {__version__}", Ansi.BOLD, Ansi.BRIGHT_CYAN),
-        style_text("选择一个工具进入它的交互菜单", Ansi.DIM),
-    ]
-    body_lines = []
-    for idx, (token, label, _, summary) in enumerate(_TOOLS):
-        prefix = (
-            style_text(pointer, Ansi.BOLD, Ansi.BRIGHT_CYAN) + " "
-            if idx == selected
-            else "  "
-        )
-        hotkey = style_text(f"[{idx + 1}]", Ansi.DIM)
-        if idx == selected:
-            body_lines.append(prefix + hotkey + " " + style_text(label, Ansi.BOLD, Ansi.UNDERLINE))
-        else:
-            body_lines.append(prefix + hotkey + " " + label)
-        body_lines.append("      " + style_text(summary, Ansi.DIM))
-    footer_lines = [
-        style_text(
-            "↑/↓ 选择  |  Enter / 1-9 进入  |  q/Esc 退出",
-            Ansi.DIM,
-        ),
-    ]
+    cols = term_width()
+    # Card width tries to feel "big and obvious" without overflowing narrow
+    # terminals. 72 cols is a Goldilocks default; we cap at 90 for ultrawide.
+    card_width = max(40, min(cols - 4, 90))
 
     clear_screen()
-    sys.stdout.write("\033[H")  # home cursor before drawing
-    for line in title_lines:
-        sys.stdout.write(line + "\n")
+    sys.stdout.write("\033[H")
+
+    # Banner — kept text-only (no pixel-art) so it renders identically on
+    # every terminal and doesn't dwarf the two cards which are the actual UI.
+    banner_text = "AI CLI KIT"
+    subtitle = f"{APP_DISPLAY_NAME} v{__version__}  ·  统一 AI CLI 工具箱"
+    banner = style_text(banner_text, Ansi.BOLD, Ansi.BRIGHT_CYAN)
+    hint = style_text(subtitle, Ansi.DIM)
     sys.stdout.write("\n")
-    for line in render_box(body_lines, width=72, border_codes=(Ansi.DIM, Ansi.BLUE)):
-        sys.stdout.write(line + "\n")
+    sys.stdout.write(_centered(banner, cols) + "\n")
+    sys.stdout.write(_centered(hint, cols) + "\n")
     sys.stdout.write("\n")
-    for line in render_box(footer_lines, width=72, border_codes=(Ansi.DIM, Ansi.BLUE)):
-        sys.stdout.write(line + "\n")
+
+    # Two big cards — selected one gets BRIGHT_CYAN+BOLD border + bright label,
+    # the other dims down so the active choice is unmistakable at a glance.
+    for idx, (_token, label, _module, summary) in enumerate(_TOOLS):
+        is_selected = idx == selected
+        if is_selected:
+            border_codes = (Ansi.BOLD, Ansi.BRIGHT_CYAN)
+            number = style_text(f"{idx + 1}", Ansi.BOLD, Ansi.BRIGHT_CYAN)
+            label_styled = style_text(label, Ansi.BOLD, Ansi.UNDERLINE, Ansi.BRIGHT_CYAN)
+            summary_styled = style_text(summary, Ansi.BRIGHT_BLUE)
+        else:
+            border_codes = (Ansi.DIM,)
+            number = style_text(f"{idx + 1}", Ansi.DIM)
+            label_styled = style_text(label, Ansi.DIM)
+            summary_styled = style_text(summary, Ansi.DIM)
+
+        card_lines = [
+            f"  {number}.  {label_styled}",
+            f"      {summary_styled}",
+        ]
+        rendered = render_box(card_lines, width=card_width, border_codes=border_codes)
+
+        # Inject a left-margin pointer on the middle line of the selected card
+        # so users see a clear "you are here" without having to track colour.
+        prefix_active = style_text(pointer, Ansi.BOLD, Ansi.BRIGHT_CYAN) + " "
+        prefix_idle = "  "
+        for line_idx, line in enumerate(rendered):
+            indent = "  "  # left-align the cards to the terminal
+            marker = prefix_active if (is_selected and line_idx == 1) else prefix_idle
+            sys.stdout.write(indent + marker + line + "\n")
+        sys.stdout.write("\n")
+
+    footer = style_text(
+        "  ↑↓ 选择    Enter / 数字键 进入    q 退出",
+        Ansi.DIM,
+    )
+    sys.stdout.write(footer + "\n")
     sys.stdout.flush()
+
+
+def _centered(text: str, cols: int) -> str:
+    width = display_width(text)
+    pad = max(0, (cols - width) // 2)
+    return (" " * pad) + text
 
 
 if __name__ == "__main__":

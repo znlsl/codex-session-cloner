@@ -65,14 +65,6 @@ resolve_python() {
   fi
 }
 
-install_package() {
-  if [ "$EDITABLE" -eq 1 ]; then
-    "$VENV_PYTHON" -m pip install --no-deps --no-build-isolation -e "$PROJECT_ROOT"
-  else
-    "$VENV_PYTHON" -m pip install --no-deps --no-build-isolation "$PROJECT_ROOT"
-  fi
-}
-
 resolve_python
 
 if [ "$FORCE" -eq 1 ] && [ -d "$VENV_DIR" ]; then
@@ -91,38 +83,49 @@ else
   echo "Mode:      standard"
 fi
 
-"$PYTHON_BIN" -m venv "$VENV_DIR" --system-site-packages
+# Drop --system-site-packages: it lets Apple's bundled setuptools<61 leak in,
+# which silently builds an empty UNKNOWN-0.0.0 wheel because it can't read
+# the PEP 621 [project] table. Our package has zero runtime deps so an
+# isolated venv is strictly safer.
+"$PYTHON_BIN" -m venv "$VENV_DIR"
 VENV_PYTHON="$VENV_DIR/bin/python"
 
-if ! "$VENV_PYTHON" -c "import setuptools" >/dev/null 2>&1; then
-  echo "Error: setuptools is not available for the local installer environment." >&2
-  echo "Tip: install setuptools for your base Python, then rerun ./install.sh ." >&2
-  exit 1
+# Force-upgrade pip / setuptools / wheel inside the venv before installing
+# the package. This is what produces a real ``ai-cli-kit-0.2.0`` wheel with
+# proper console scripts (aik / cst / cc-clean) on stock macOS Python 3.9
+# where the system pip is 21.3 and setuptools is 49 — old enough that pip
+# falls back to building UNKNOWN-0.0.0 from our pyproject.toml.
+echo "Upgrading pip / setuptools / wheel in the local venv..."
+"$VENV_PYTHON" -m pip install --quiet --upgrade pip setuptools wheel
+
+if [ "$EDITABLE" -eq 1 ]; then
+  "$VENV_PYTHON" -m pip install --no-deps -e "$PROJECT_ROOT"
+else
+  "$VENV_PYTHON" -m pip install --no-deps "$PROJECT_ROOT"
 fi
 
-if ! install_package; then
-  echo "Local no-build-isolation install failed; retrying with build isolation..." >&2
-  if [ "$EDITABLE" -eq 1 ]; then
-    "$VENV_PYTHON" -m pip install --no-deps -e "$PROJECT_ROOT"
-  else
-    "$VENV_PYTHON" -m pip install --no-deps "$PROJECT_ROOT"
+# chmod the launcher scripts that exist. ``release.sh`` only ships in the
+# git source tree (it's excluded from the user-facing release tarball) so
+# we skip it when missing rather than failing the install.
+for launcher in aik cc-clean codex-session-toolkit codex-session-toolkit.command install.sh install.command release.sh; do
+  if [ -f "$PROJECT_ROOT/$launcher" ]; then
+    chmod +x "$PROJECT_ROOT/$launcher"
   fi
-fi
-
-chmod +x \
-  "$PROJECT_ROOT/aik" \
-  "$PROJECT_ROOT/cc-clean" \
-  "$PROJECT_ROOT/codex-session-toolkit" \
-  "$PROJECT_ROOT/codex-session-toolkit.command" \
-  "$PROJECT_ROOT/install.sh" \
-  "$PROJECT_ROOT/install.command" \
-  "$PROJECT_ROOT/release.sh"
+done
 
 echo ""
-echo "Install complete."
-echo "Run now:"
-echo "  ./aik                       # 顶层 hub (Codex / Claude)"
-echo "  ./codex-session-toolkit     # Codex 子工具 (兼容入口)"
-echo "  ./cc-clean                  # Claude 子工具 (兼容入口)"
-echo "Version:"
-echo "  $VENV_DIR/bin/$APP_NAME --version"
+echo "============================================="
+echo " Install complete."
+echo "============================================="
+echo "推荐：在项目目录里直接运行 launcher（已自动可执行）"
+echo "  ./aik                # 顶层菜单（推荐入口，进 Codex / Claude 选一个）"
+echo "  ./codex-session-toolkit"
+echo "  ./cc-clean"
+echo ""
+echo "如需在任意目录用裸命令 'aik' 启动，把 venv bin 加入 PATH："
+echo "  export PATH=\"$VENV_DIR/bin:\$PATH\""
+echo "或者 source venv："
+echo "  source \"$VENV_DIR/bin/activate\""
+echo ""
+echo "查看版本："
+echo "  ./aik --version"

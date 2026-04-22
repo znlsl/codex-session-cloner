@@ -75,7 +75,11 @@ if ($Editable) {
     Write-Host "Mode:      standard"
 }
 
-& $pythonExe @pythonPreArgs -m venv $venvDir --system-site-packages
+# Drop --system-site-packages: it lets a stale system setuptools<61 leak in
+# and silently build an empty UNKNOWN-0.0.0 wheel because the PEP 621 [project]
+# table goes unread. Our package has zero runtime deps so an isolated venv
+# is strictly safer.
+& $pythonExe @pythonPreArgs -m venv $venvDir
 Assert-LastExitCode "python -m venv"
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
@@ -83,35 +87,30 @@ if (-not (Test-Path $venvPython)) {
     exit 1
 }
 
-& $venvPython -c "import setuptools" 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error: setuptools is not available for the local installer environment." -ForegroundColor Red
-    Write-Host "Tip: install setuptools for your base Python, then rerun .\install.ps1 ." -ForegroundColor Yellow
-    exit 1
-}
+# Force-upgrade pip / setuptools / wheel inside the venv so PEP 621 metadata
+# is read correctly and console scripts (aik / cst / cc-clean) actually land.
+Write-Host "Upgrading pip / setuptools / wheel in the local venv..."
+& $venvPython -m pip install --quiet --upgrade pip setuptools wheel
+Assert-LastExitCode "pip install --upgrade pip setuptools wheel"
 
-try {
-    if ($Editable) {
-        & $venvPython -m pip install --no-deps --no-build-isolation -e $projectRoot
-    } else {
-        & $venvPython -m pip install --no-deps --no-build-isolation $projectRoot
-    }
-    Assert-LastExitCode "pip install --no-build-isolation"
-} catch {
-    Write-Host "Local no-build-isolation install failed; retrying with build isolation..." -ForegroundColor Yellow
-    if ($Editable) {
-        & $venvPython -m pip install --no-deps -e $projectRoot
-    } else {
-        & $venvPython -m pip install --no-deps $projectRoot
-    }
-    Assert-LastExitCode "pip install"
+if ($Editable) {
+    & $venvPython -m pip install --no-deps -e $projectRoot
+} else {
+    & $venvPython -m pip install --no-deps $projectRoot
 }
+Assert-LastExitCode "pip install"
 
 Write-Host ""
-Write-Host "Install complete." -ForegroundColor Green
-Write-Host "Run now:"
-Write-Host "  .\aik.cmd                       # 顶层 hub (Codex / Claude)"
-Write-Host "  .\codex-session-toolkit.cmd     # Codex 子工具 (兼容入口)"
-Write-Host "  .\cc-clean.cmd                  # Claude 子工具 (兼容入口)"
-Write-Host "Version:"
-Write-Host "  .\.venv\Scripts\aik.exe --version"
+Write-Host "=============================================" -ForegroundColor Green
+Write-Host " Install complete." -ForegroundColor Green
+Write-Host "=============================================" -ForegroundColor Green
+Write-Host "推荐：在项目目录里直接运行 launcher"
+Write-Host "  .\aik.cmd                # 顶层菜单（推荐入口，进 Codex / Claude 选一个）"
+Write-Host "  .\codex-session-toolkit.cmd"
+Write-Host "  .\cc-clean.cmd"
+Write-Host ""
+Write-Host "如需在任意目录用裸命令 ``aik`` 启动，把 venv Scripts 加入 PATH："
+Write-Host "  `$env:Path = `"$venvDir\Scripts;`" + `$env:Path"
+Write-Host ""
+Write-Host "查看版本："
+Write-Host "  .\aik.cmd --version"
