@@ -230,6 +230,13 @@ def _render_hub(selected: int) -> None:
 
     # Two big cards — selected one gets BRIGHT_CYAN+BOLD border + bright label,
     # the other dims down so the active choice is unmistakable at a glance.
+    # Each card is centred horizontally as a UNIT (pad = (cols - card_width
+    # - marker_width) / 2) so the cards line up with the centred banner /
+    # subtitle above and match the sub-tools' centred layout.
+    marker_width = 2  # "  " or "› " — both render as 2 columns
+    card_pad = max(0, (cols - card_width - marker_width) // 2)
+    card_indent = " " * card_pad
+
     for idx, (_token, label, _module, summary) in enumerate(_TOOLS):
         is_selected = idx == selected
         if is_selected:
@@ -252,16 +259,15 @@ def _render_hub(selected: int) -> None:
         prefix_active = style_text(pointer, Ansi.BOLD, Ansi.BRIGHT_CYAN) + " "
         prefix_idle = "  "
         for line_idx, line in enumerate(rendered):
-            indent = "  "
             marker = prefix_active if (is_selected and line_idx == 1) else prefix_idle
-            sys.stdout.write(indent + marker + line + "\n")
+            sys.stdout.write(card_indent + marker + line + "\n")
         sys.stdout.write("\n")
 
     footer = style_text(
-        "  ↑↓ 选择    Enter / 数字键 进入    Esc / q 退出",
+        "↑↓ 选择    Enter / 数字键 进入    Esc / q 退出",
         Ansi.DIM,
     )
-    sys.stdout.write(footer + "\n")
+    sys.stdout.write(_centered(footer, cols) + "\n")
     sys.stdout.flush()
 
 

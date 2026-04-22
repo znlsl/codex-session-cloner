@@ -163,6 +163,51 @@ class HubLogoTests(unittest.TestCase):
         # don't have to guess.
         self.assertIn("Esc", plain)
 
+    def test_hub_cards_are_horizontally_centred(self) -> None:
+        """Cards must have non-trivial left padding on a wide terminal.
+
+        Regression guard: an earlier hub used a hard-coded ``"  "`` 2-space
+        indent regardless of terminal width, leaving the cards visually
+        skewed left of the centred banner above them. The fix computes
+        ``card_pad = (cols - card_width - marker_width) // 2`` so the cards
+        line up with the banner.
+        """
+        if str(SRC_DIR) not in sys.path:
+            sys.path.insert(0, str(SRC_DIR))
+        import io
+        import re
+
+        from ai_cli_kit.cli import _render_hub
+        from ai_cli_kit.core.tui import terminal as core_terminal
+
+        # Force a wide terminal so the centred padding is unambiguous.
+        original_term_width = core_terminal.term_width
+        core_terminal.term_width = lambda fallback=90: 120
+        # Patch the cli's reference too — it imported the symbol directly.
+        from ai_cli_kit import cli as cli_mod
+        original_cli_term_width = cli_mod.term_width
+        cli_mod.term_width = lambda fallback=90: 120
+
+        buf = io.StringIO()
+        original_stdout = sys.stdout
+        sys.stdout = buf
+        try:
+            _render_hub(0)
+        finally:
+            sys.stdout = original_stdout
+            core_terminal.term_width = original_term_width
+            cli_mod.term_width = original_cli_term_width
+
+        plain_lines = re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue()).splitlines()
+        card_top_lines = [ln for ln in plain_lines if "┌" in ln]
+        self.assertGreaterEqual(len(card_top_lines), 1)
+        # The leading whitespace of the card top border must be > 8 cols on a
+        # 120-col terminal — anything less means we regressed to the old
+        # "hard-coded 2-space indent" left-alignment.
+        for top in card_top_lines:
+            indent = len(top) - len(top.lstrip(" "))
+            self.assertGreater(indent, 8, f"card row {top!r} not centred (indent={indent})")
+
 
 if __name__ == "__main__":
     unittest.main()

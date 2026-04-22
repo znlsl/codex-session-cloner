@@ -229,7 +229,12 @@ class ToolkitTuiApp:
     def _screen_layout(self) -> Tuple[int, int, bool]:
         screen_width = term_width()
         box_width = min(tui_width(screen_width), 96)
-        return screen_width, box_width, screen_width > box_width + 4
+        # Always centre. The previous ``screen_width > box_width + 4`` guard
+        # left content visually hugging the left margin on common 90~100-col
+        # terminals, which read as "skewed left" against the centred banner
+        # / cards above. ``align_line`` is a no-op when padding works out to
+        # zero (terminal == box width), so this is safe for narrow shells.
+        return screen_width, box_width, True
 
     def _screen_height(self) -> int:
         return max(12, term_height())
