@@ -64,7 +64,7 @@ if ($pyCmd.Length -gt 1) {
 }
 
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host " Codex Session Toolkit - Installer (Windows)" -ForegroundColor Cyan
+Write-Host " AI CLI Kit - Installer (Windows)" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "Project:   $projectRoot"
 Write-Host "Python:    $pythonExe $($pythonPreArgs -join ' ')"
@@ -110,6 +110,8 @@ try {
 Write-Host ""
 Write-Host "Install complete." -ForegroundColor Green
 Write-Host "Run now:"
-Write-Host "  .\codex-session-toolkit.cmd"
+Write-Host "  .\aik.cmd                       # 顶层 hub (Codex / Claude)"
+Write-Host "  .\codex-session-toolkit.cmd     # Codex 子工具 (兼容入口)"
+Write-Host "  .\cc-clean.cmd                  # Claude 子工具 (兼容入口)"
 Write-Host "Version:"
-Write-Host "  .\.venv\Scripts\codex-session-toolkit.exe --version"
+Write-Host "  .\.venv\Scripts\aik.exe --version"

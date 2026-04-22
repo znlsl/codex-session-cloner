@@ -80,12 +80,12 @@ resolve_python
 if [ -z "$VERSION" ]; then
   VERSION="$(
     PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
-      "$PYTHON_BIN" -c 'from codex_session_toolkit import __version__; print(__version__)'
+      "$PYTHON_BIN" -c 'from ai_cli_kit import __version__; print(__version__)'
   )"
 fi
 
-ARCHIVE_ROOT="codex-session-toolkit-${VERSION}"
-STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-session-toolkit-release.XXXXXX")"
+ARCHIVE_ROOT="ai-cli-kit-${VERSION}"
+STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ai-cli-kit-release.XXXXXX")"
 RELEASE_DIR="$STAGE_DIR/$ARCHIVE_ROOT"
 
 cleanup() {
@@ -129,6 +129,8 @@ find "$RELEASE_DIR" -type d \( -name "__pycache__" -o -name "*.egg-info" \) -pru
 find "$RELEASE_DIR" -type f \( -name "*.pyc" -o -name "*.pyo" -o -name ".DS_Store" \) -delete
 
 chmod +x \
+  "$RELEASE_DIR/aik" \
+  "$RELEASE_DIR/cc-clean" \
   "$RELEASE_DIR/codex-session-toolkit" \
   "$RELEASE_DIR/codex-session-toolkit.command" \
   "$RELEASE_DIR/install.sh" \
@@ -147,7 +149,7 @@ rm -rf "$OUTPUT_DIR/$ARCHIVE_ROOT"
 cp -R "$RELEASE_DIR" "$OUTPUT_DIR/$ARCHIVE_ROOT"
 
 echo "============================================="
-echo " Codex Session Toolkit - Release Builder"
+echo " AI CLI Kit - Release Builder"
 echo "============================================="
 echo "Version:     $VERSION"
 echo "Output dir:  $OUTPUT_DIR"

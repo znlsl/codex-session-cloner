@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 PROJECT_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)"
-APP_NAME="codex-session-toolkit"
+APP_NAME="aik"
 VENV_DIR="${VENV_DIR:-$PROJECT_ROOT/.venv}"
 EDITABLE=0
 FORCE=0
@@ -80,7 +80,7 @@ if [ "$FORCE" -eq 1 ] && [ -d "$VENV_DIR" ]; then
 fi
 
 echo "============================================="
-echo " Codex Session Toolkit - Installer (Unix)"
+echo " AI CLI Kit - Installer (Unix)"
 echo "============================================="
 echo "Project:   $PROJECT_ROOT"
 echo "Python:    $PYTHON_BIN"
@@ -110,6 +110,8 @@ if ! install_package; then
 fi
 
 chmod +x \
+  "$PROJECT_ROOT/aik" \
+  "$PROJECT_ROOT/cc-clean" \
   "$PROJECT_ROOT/codex-session-toolkit" \
   "$PROJECT_ROOT/codex-session-toolkit.command" \
   "$PROJECT_ROOT/install.sh" \
@@ -119,6 +121,8 @@ chmod +x \
 echo ""
 echo "Install complete."
 echo "Run now:"
-echo "  ./codex-session-toolkit"
+echo "  ./aik                       # 顶层 hub (Codex / Claude)"
+echo "  ./codex-session-toolkit     # Codex 子工具 (兼容入口)"
+echo "  ./cc-clean                  # Claude 子工具 (兼容入口)"
 echo "Version:"
 echo "  $VENV_DIR/bin/$APP_NAME --version"
