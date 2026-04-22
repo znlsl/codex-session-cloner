@@ -29,6 +29,7 @@ from ...core.tui.terminal import (  # noqa: F401
     COLOR_ENABLED,
     UNICODE_BOX_CHARS,
     UNICODE_GLYPHS,
+    _WINDOWS_VT_OK,
     _box_chars,
     _can_encode,
     _env_first,

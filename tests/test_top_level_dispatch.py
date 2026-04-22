@@ -425,6 +425,50 @@ class CodexSubflowCenteringTests(unittest.TestCase):
         self.assertIn("_WINDOWS_VT_OK", text, "_WINDOWS_VT_OK guard missing from cli.py")
         self.assertIn("if _WINDOWS_VT_OK", text, "no conditional guard around VT sequences")
 
+    def test_codex_cursor_toggles_guarded_by_windows_vt(self) -> None:
+        """Regression guard: every ``\\033[?25l`` / ``\\033[?25h`` write in
+        ``codex/tui/app.py`` MUST be inside an ``if _WINDOWS_VT_OK:`` block.
+
+        Legacy Windows cmd.exe can't interpret VT escapes — the literal
+        ``\\033[?25h`` would print as garbage glued to the prompt or above
+        modal headers, ruining the TUI. The console there always shows the
+        cursor anyway, so dropping the toggle is a clean functional no-op
+        on that edge case.
+
+        The frame-redraw paths (``_render_home``/``_render_section_page``)
+        embed cursor codes into a ``hide_cursor + home_cursor + body``
+        string written in one call — those are excluded from this scan
+        because the entire frame is meaningless on a non-VT console
+        anyway and the code uses string-concat assignment rather than
+        bare ``sys.stdout.write("\\033[?25l")``.
+        """
+        import re
+
+        path = ROOT_DIR / "src" / "ai_cli_kit" / "codex" / "tui" / "app.py"
+        text = path.read_text(encoding="utf-8")
+        # Find every ``sys.stdout.write("\033[?25...")`` call. Each MUST
+        # have an ``if _WINDOWS_VT_OK`` (or matching guard variable) on
+        # the immediately preceding non-blank source line.
+        lines = text.splitlines()
+        cursor_pattern = re.compile(r'sys\.stdout\.write\(\s*"\\033\[\?25[lh]"\s*\)')
+        for idx, line in enumerate(lines):
+            if not cursor_pattern.search(line):
+                continue
+            # Walk backwards for the nearest non-blank, non-comment line.
+            guard_idx = idx - 1
+            while guard_idx >= 0 and (not lines[guard_idx].strip() or lines[guard_idx].lstrip().startswith("#")):
+                guard_idx -= 1
+            if guard_idx < 0:
+                self.fail(f"line {idx + 1} cursor toggle has no preceding guard")
+            guard_line = lines[guard_idx]
+            self.assertIn(
+                "_WINDOWS_VT_OK",
+                guard_line,
+                f"line {idx + 1} cursor toggle ({line.strip()!r}) "
+                f"is not guarded by _WINDOWS_VT_OK; nearest guard line was "
+                f"{guard_idx + 1}: {guard_line.strip()!r}",
+            )
+
     def test_sqlite3_connect_uses_long_path_wrapper(self) -> None:
         """Regression guard: every ``sqlite3.connect(...)`` MUST go through
         ``long_path()`` so Windows MAX_PATH (260 chars) doesn't crash the

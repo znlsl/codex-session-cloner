@@ -32,6 +32,7 @@ from ..stores.bundles import (
 )
 from .terminal import (
     Ansi,
+    _WINDOWS_VT_OK,
     align_line,
     app_logo_lines,
     clear_screen,
@@ -317,8 +318,11 @@ class ToolkitTuiApp:
         # that reads as flicker/ghosting while many print() calls fill the frame.
         # Counterpart show-cursor is emitted by _await_input before each stdin
         # prompt so the user still sees the insertion point while typing.
-        sys.stdout.write("\033[?25l")
-        sys.stdout.flush()
+        # Guarded by _WINDOWS_VT_OK: legacy cmd.exe (no VT) would print the
+        # raw escape ``\033[?25l`` as literal garbage above the brand header.
+        if _WINDOWS_VT_OK:
+            sys.stdout.write("\033[?25l")
+            sys.stdout.flush()
         _, box_width, _ = self._screen_layout()
         for line in self._brand_header_lines(title, subtitle):
             print(line)
@@ -347,8 +351,14 @@ class ToolkitTuiApp:
         """
         import re
 
-        sys.stdout.write("\033[?25h")
-        sys.stdout.flush()
+        # Guard cursor toggles with _WINDOWS_VT_OK: legacy Windows cmd.exe
+        # (no VT) prints the raw ``\033[?25h`` / ``\033[?25l`` as literal
+        # garbage glued to the prompt, ruining the modal. The console there
+        # always shows the cursor anyway, so dropping the toggle is a clean
+        # functional no-op for that edge case.
+        if _WINDOWS_VT_OK:
+            sys.stdout.write("\033[?25h")
+            sys.stdout.flush()
         try:
             screen_width, _, center = self._screen_layout()
             # Greedily peel any combination of ``\n`` + ANSI escapes from the
@@ -375,8 +385,9 @@ class ToolkitTuiApp:
                 sys.stdout.write("\n" * leading_newlines)
             return input(align_line(display_prompt, screen_width, center=center))
         finally:
-            sys.stdout.write("\033[?25l")
-            sys.stdout.flush()
+            if _WINDOWS_VT_OK:
+                sys.stdout.write("\033[?25l")
+                sys.stdout.flush()
 
     def _print_centered_box(self, box_lines) -> None:
         """Print a ``render_box(...)`` output with each line centred.
@@ -1685,15 +1696,14 @@ class ToolkitTuiApp:
         # cmd.exe (no VT) they print as literal ``\033[?1049h`` text and
         # corrupt the UI. Fall back to ``clear_screen`` which knows to use
         # ``os.system("cls")`` on those consoles.
-        from .terminal import _WINDOWS_VT_OK as _vt_ok
         if not hub_active:
-            if _vt_ok:
+            if _WINDOWS_VT_OK:
                 sys.stdout.write("\033[?1049h\033[H")
                 sys.stdout.flush()
             else:
                 clear_screen()
         else:
-            if _vt_ok:
+            if _WINDOWS_VT_OK:
                 sys.stdout.write("\033[H")
             else:
                 clear_screen()
@@ -1837,7 +1847,7 @@ class ToolkitTuiApp:
             # When invoked from the hub, we just clear and let the hub redraw
             # on top of the same alt-screen surface.
             if not hub_active:
-                if _vt_ok:
+                if _WINDOWS_VT_OK:
                     sys.stdout.write("\033[?25h\033[?1049l")
                 else:
                     clear_screen()
