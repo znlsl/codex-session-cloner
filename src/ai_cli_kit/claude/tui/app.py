@@ -375,10 +375,14 @@ class CleanerTuiApp:
             % ("开启" if self.state.backup_enabled else "关闭", "开启" if self.state.dry_run else "关闭"),
             "屏幕模式：%s" % self._screen_mode_text(),
         ]
-        for line in render_box(header_lines, width=box_width, border_codes=(Ansi.DIM, Ansi.CYAN)):
+        # Header / info box: short labelled values — centring makes the
+        # values line up with the centred banner above.
+        for line in render_box(header_lines, width=box_width, border_codes=(Ansi.DIM, Ansi.CYAN), align="center"):
             output_lines.append(align_line(line, width, center=True))
 
         output_lines.append("")
+        # Plan list intentionally left-aligned: the checkbox / key column on
+        # the left matters visually, centring each row would break the grid.
         list_lines = self._visible_plan_lines(plan, box_width)
         for line in render_box(list_lines, width=box_width, border_codes=(Ansi.DIM, Ansi.MAGENTA)):
             output_lines.append(align_line(line, width, center=True))
@@ -395,13 +399,13 @@ class CleanerTuiApp:
                 "a 安全预设  |  f 完整重置  |  n 清空全部  |  b 备份  |  d 演练模式",
                 "r 预览计划  |  x 执行  |  q 退出",
             ]
-        for line in render_box(help_lines, width=box_width, border_codes=(Ansi.DIM, Ansi.BLUE)):
+        for line in render_box(help_lines, width=box_width, border_codes=(Ansi.DIM, Ansi.BLUE), align="center"):
             output_lines.append(align_line(line, width, center=True))
 
         if self.state.flash_message:
             output_lines.append("")
             flash_lines = [self.state.flash_message]
-            for line in render_box(flash_lines, width=min(box_width, 72), border_codes=(Ansi.DIM, Ansi.BRIGHT_MAGENTA)):
+            for line in render_box(flash_lines, width=min(box_width, 72), border_codes=(Ansi.DIM, Ansi.BRIGHT_MAGENTA), align="center"):
                 output_lines.append(align_line(line, width, center=True))
 
         return "\n".join(output_lines)
@@ -419,7 +423,7 @@ class CleanerTuiApp:
         box_width = self._box_width()
         output_lines = self._brand_header_lines(title, subtitle)
         output_lines.append("")
-        for line in render_box(list(lines), width=box_width, border_codes=tuple(border_codes)):
+        for line in render_box(list(lines), width=box_width, border_codes=tuple(border_codes), align="center"):
             output_lines.append(align_line(line, width, center=True))
         if footer:
             output_lines.append("")

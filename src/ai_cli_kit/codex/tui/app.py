@@ -280,8 +280,15 @@ class ToolkitTuiApp:
         screen_width: int,
         center: bool,
         border_codes: Tuple[str, ...],
+        align: str = "center",
     ) -> None:
-        for line in render_box(lines, width=box_width, border_codes=border_codes):
+        """Append a box; ``align`` controls inner content alignment.
+
+        Default is ``"center"`` so menu / nav / info boxes look aligned with
+        the centred banner above. Pass ``align="left"`` for tabular content
+        like session lists where centring each row would be unreadable.
+        """
+        for line in render_box(lines, width=box_width, border_codes=border_codes, align=align):
             output_lines.append(align_line(line, screen_width, center=center))
 
     def _action_badge(self, menu_action: TuiMenuAction) -> str:
@@ -535,7 +542,9 @@ class ToolkitTuiApp:
         allow_empty: bool = True,
     ) -> Optional[str]:
         box_width = self._print_branded_header(title)
-        for line in render_box(help_lines, width=box_width, border_codes=(Ansi.DIM, Ansi.BLUE)):
+        # Help / hint boxes use centered content so they line up with the
+        # centred branded header above.
+        for line in render_box(help_lines, width=box_width, border_codes=(Ansi.DIM, Ansi.BLUE), align="center"):
             print(line)
         print("")
 
