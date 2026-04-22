@@ -163,9 +163,9 @@ def load_old_identifier_snapshot(
 
 def _run_claude_refresh(timeout_seconds: int) -> None:
     # ``shutil.which`` resolves PATHEXT-aware locations on Windows so we find
-    # ``claude.cmd`` / ``claude.exe`` wrappers without needing ``shell=True``
-    # (which would expose us to argument-quoting pitfalls). On POSIX it just
-    # returns the absolute path of ``claude`` from PATH.
+    # ``claude.cmd`` / ``claude.exe`` wrappers without scanning ourselves. On
+    # POSIX it just returns the absolute path of ``claude`` from PATH.
+    import os as _os
     import shutil as _shutil
 
     executable = _shutil.which("claude")
@@ -173,8 +173,19 @@ def _run_claude_refresh(timeout_seconds: int) -> None:
         raise RuntimeError(
             "未在 PATH 中找到 ``claude`` 可执行文件；请确认 Claude Code CLI 已安装并加入 PATH。"
         )
+
+    # On Windows, npm-installed CLIs (Claude Code is one) ship as ``.cmd`` /
+    # ``.bat`` shims. ``subprocess.run([path], shell=False)`` uses
+    # ``CreateProcess`` directly, which CANNOT execute batch files — it would
+    # raise ``OSError: [WinError 193] %1 is not a valid Win32 application``.
+    # Wrap such targets with ``cmd.exe /c`` so cmd.exe interprets the batch.
+    # ``.exe`` paths are executed directly (no wrapping needed).
+    cmd: list = [executable, "-p", DEFAULT_CLAUDE_PROMPT]
+    if _os.name == "nt" and executable.lower().endswith((".cmd", ".bat")):
+        cmd = ["cmd.exe", "/c", executable, "-p", DEFAULT_CLAUDE_PROMPT]
+
     result = subprocess.run(
-        [executable, "-p", DEFAULT_CLAUDE_PROMPT],
+        cmd,
         capture_output=True,
         text=True,
         check=False,

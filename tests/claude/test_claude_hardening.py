@@ -64,6 +64,56 @@ class ClaudeBinaryDiscoveryTests(unittest.TestCase):
                 _run_claude_refresh(timeout_seconds=1)
         self.assertIn("PATH", str(ctx.exception))
 
+    def test_run_claude_refresh_wraps_windows_cmd_shim_with_cmd_exe(self) -> None:
+        """Windows: ``shutil.which("claude")`` typically resolves to a npm
+        ``claude.cmd`` shim. ``subprocess.run([path], shell=False)`` uses
+        ``CreateProcess`` directly, which CANNOT execute ``.cmd``/``.bat``
+        files — it raises ``WinError 193`` ('not a valid Win32 application').
+        ``_run_claude_refresh`` MUST detect the batch extension and wrap
+        with ``cmd.exe /c`` so cmd.exe interprets the shim. POSIX paths and
+        ``.exe`` resolution must NOT be wrapped.
+        """
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+
+            class _Result:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return _Result()
+
+        # Simulate Windows .cmd resolution.
+        with patch("os.name", "nt"):
+            with patch("shutil.which", return_value="C:\\Users\\x\\AppData\\Roaming\\npm\\claude.cmd"):
+                with patch("ai_cli_kit.claude.history_remap.subprocess.run", side_effect=fake_run):
+                    _run_claude_refresh(timeout_seconds=5)
+        self.assertEqual(captured["cmd"][0], "cmd.exe", "Windows .cmd shim NOT wrapped with cmd.exe /c")
+        self.assertEqual(captured["cmd"][1], "/c")
+        self.assertEqual(captured["cmd"][2], "C:\\Users\\x\\AppData\\Roaming\\npm\\claude.cmd")
+
+        # POSIX path: must be invoked directly, no wrapping.
+        captured.clear()
+        with patch("os.name", "posix"):
+            with patch("shutil.which", return_value="/usr/local/bin/claude"):
+                with patch("ai_cli_kit.claude.history_remap.subprocess.run", side_effect=fake_run):
+                    _run_claude_refresh(timeout_seconds=5)
+        self.assertEqual(captured["cmd"][0], "/usr/local/bin/claude", "POSIX path wrongly wrapped")
+
+        # Windows .exe: also direct, no wrapping (CreateProcess handles .exe).
+        captured.clear()
+        with patch("os.name", "nt"):
+            with patch("shutil.which", return_value="C:\\Program Files\\Claude\\claude.exe"):
+                with patch("ai_cli_kit.claude.history_remap.subprocess.run", side_effect=fake_run):
+                    _run_claude_refresh(timeout_seconds=5)
+        self.assertEqual(
+            captured["cmd"][0],
+            "C:\\Program Files\\Claude\\claude.exe",
+            "Windows .exe wrongly wrapped — only .cmd/.bat need cmd.exe /c",
+        )
+
     def test_run_claude_refresh_uses_resolved_executable(self) -> None:
         # Mock both shutil.which (used by our code) and subprocess.run to
         # capture how the resolved executable is forwarded.
