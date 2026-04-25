@@ -245,6 +245,23 @@ class PathSizeCacheTests(unittest.TestCase):
         self.assertEqual(len(_PATH_SIZE_CACHE), cache_size_before,
                          "second call added a new cache entry — cache miss when it should hit")
 
+    def test_rglob_failure_returns_zero_not_crash(self) -> None:
+        """If the directory disappears mid-walk (user ``rm -rf`` from another
+        shell while the TUI is open), ``_path_size`` must return 0 rather
+        than propagate ``OSError`` — otherwise the entire claude TUI dies
+        on the user's next keypress.
+
+        We simulate by patching ``Path.rglob`` to raise ``OSError`` directly,
+        which is what the OS would do if the directory vanished after the
+        exists()/stat() check passed.
+        """
+        from unittest.mock import patch
+        from ai_cli_kit.claude.services import _path_size
+
+        with patch("pathlib.Path.rglob", side_effect=OSError("ENOENT (simulated)")):
+            result = _path_size(self.dir)
+        self.assertEqual(result, 0, "rglob OSError must return 0, not crash")
+
     def test_cache_concurrent_access_is_safe(self) -> None:
         """Concurrent ``_path_size`` calls must not corrupt the cache.
 

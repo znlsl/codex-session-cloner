@@ -529,12 +529,20 @@ def _path_size(path: Path) -> int:
         return cached
 
     total = 0
-    for child in path.rglob("*"):
-        if child.is_file():
-            try:
-                total += child.stat().st_size
-            except OSError:
-                continue
+    # ``rglob`` itself can raise OSError if the directory disappears between
+    # our exists()/stat() check and the walk (e.g. user runs ``rm -rf
+    # ~/.claude/projects`` in a separate shell while the TUI is open).
+    # Returning 0 keeps the TUI alive — the next render's exists() check
+    # will reflect the deletion.
+    try:
+        for child in path.rglob("*"):
+            if child.is_file():
+                try:
+                    total += child.stat().st_size
+                except OSError:
+                    continue
+    except OSError:
+        return 0
 
     with _PATH_SIZE_CACHE_LOCK:
         # Trim cache if it grows unreasonably (different targets, repeated runs).
